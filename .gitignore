@@ -6,6 +6,24 @@ __pycache__/
 # C extensions
 *.so
 
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.py[cod]
+*.egg-info/
+
+# Secrets stay local; only the template is committed.
+.env
+.env.*
+!.env.example
+
+# Runtime data never belongs in the repo.
+*.db
+*.db-wal
+*.db-shm
+events.jsonl
+
 # Distribution / packaging
 .Python
 build/
