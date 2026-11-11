@@ -13,8 +13,11 @@ repositories. The design is in `docs/technical-document.md`; the screens are in 
 - `frontend/`: plain HTML, CSS and JavaScript modules, no build step. One module per tab in `js/tabs/`.
 - `backend/`: FastAPI. `api/` routers call `services/` use cases. No business rules here.
 - `pipeline/`: the orchestrator, plain deterministic Python. Runs agents, checks, merges, retries.
+  `runner/` is the agent runner: the only code that starts Claude Code (`runner/claude_runner.py`).
+  `publisher/` is the Publisher: its read-only Jira tool, the plan guard and the chat turn.
 - `core/`: settings, database (`db/`), tracker adapters (`trackers/`), locks, atomic file writes.
-- `tests/`: mirrors the source folders. `doubles/` holds fake Jira, fake GitHub, recorded Claude streams.
+- `tests/`: mirrors the source folders, one test folder per source folder (for example
+  `tests/pipeline/publisher/` for `pipeline/publisher/`). `doubles/` holds fake Jira, fake GitHub, recorded Claude streams.
 - `docs/`: technical document, `database.dbml`, UI screens, decision records in `adr/`.
 
 ## Rules for the code

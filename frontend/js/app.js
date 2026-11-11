@@ -1,4 +1,6 @@
 "use strict";
+/* Page frame: tabs, the project selector, the user's initials. Each tab has its own module. */
+window.Brigade = window.Brigade || {};
 
 const TABS = ["publisher", "planning", "orchestrator"];
 
@@ -27,13 +29,6 @@ function showTab() {
   for (const link of document.querySelectorAll("#tabs a")) {
     link.classList.toggle("active", link.dataset.tab === current);
   }
-}
-
-function toggleDrawer() {
-  const drawer = document.getElementById("chat-drawer");
-  const button = document.getElementById("rail-toggle");
-  drawer.hidden = !drawer.hidden;
-  button.setAttribute("aria-expanded", String(!drawer.hidden));
 }
 
 async function getJson(url) {
@@ -69,21 +64,22 @@ async function loadProjects() {
   }
 }
 
-async function loadUser() {
+async function start() {
+  let health = {};
   try {
-    const health = await getJson("/api/health");
+    health = await getJson("/api/health");
     document.getElementById("avatar").textContent = health.user_initials;
   } catch (error) {
-    /* the project notice already reports an unreachable backend */
+    /* the project notice reports an unreachable backend */
   }
+  Brigade.publisher.init({ initials: health.user_initials, jiraSite: health.jira_site_url });
 }
 
 document.getElementById("project-select").addEventListener("change", (event) => {
   remember("brigade.project", event.target.value);
 });
-document.getElementById("rail-toggle").addEventListener("click", toggleDrawer);
 window.addEventListener("hashchange", showTab);
 
 showTab();
 loadProjects();
-loadUser();
+start();

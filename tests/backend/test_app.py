@@ -87,6 +87,31 @@ def test_the_page_and_its_files_are_served(client):
     assert client.get("/assets/logo.png").status_code == 200
 
 
+SCRIPTS = [
+    "js/components/markdown.js",
+    "js/components/plan-tree.js",
+    "js/tabs/publisher.js",
+    "js/app.js",
+]
+
+
+def test_the_publisher_scripts_load_in_order_as_javascript(client):
+    page = client.get("/").text
+    positions = [page.index(f'<script src="{script}">') for script in SCRIPTS]
+    assert positions == sorted(positions)  # helpers before the tab, the tab before app.js
+    for script in SCRIPTS:
+        response = client.get("/" + script)
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/javascript")
+
+
+def test_the_publisher_tab_has_its_controls(client):
+    page = client.get("/").text
+    for element_id in ("message", "file-input", "attach", "send", "chat-list", "new-chat"):
+        assert f'id="{element_id}"' in page
+    assert 'accept=".txt,.md,.docx,.pdf"' in page
+
+
 def test_unknown_api_path_is_not_the_page(client):
     assert client.get("/api/nope").status_code == 404
 
