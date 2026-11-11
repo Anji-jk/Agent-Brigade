@@ -1,81 +1,53 @@
-// Agent Brigade - database schema (revised draft, 14 tables)
+// Agent Brigade - database schema (11 tables)
 // Paste into https://dbdiagram.io/d to see the diagram.
-// "// +" marks a change from the original 11-table draft. See docs/adr/0001 for the central database.
+// See docs/adr/0001 for the central database.
 
 Project agent_brigade {
   database_type: 'SQLite'
   Note: 'One central file for all projects: <BRIGADE_DATA_DIR>/brigade.db (default ~/.agent-brigade/)'
 }
 
-// ---------- Projects ----------
+// ---------- Project ----------
 
 Table projects {
   id integer [pk, increment]
-  name varchar [not null, unique]
-  tracker varchar [not null, default: 'jira', note: 'jira | github']       // +
-  jira_project_key varchar [note: 'the Jira space, e.g. KAN']             // +
+  name varchar [not null]
   repository varchar [note: 'owner/repo']
   local_path varchar [not null]
   base_branch varchar [not null]
-  created_at timestamp                                                      // +
-  Note: 'A connected project. Per-project settings live here, not in .env. Secrets never do.'
+  Note: 'The connected project'
 }
 
 // ---------- Board (local copy of the tracker) ----------
 
 Table tracker_items {
-  key varchar [pk, note: 'Jira key, or owner/repo#number for GitHub']
-  project_id integer [not null, ref: > projects.id]
+  key varchar [pk, note: 'Jira key, or GitHub issue number']
+  project_id integer [not null]
   type varchar [not null, note: 'epic | story | sub-task']
-  parent_key varchar [ref: > tracker_items.key, note: 'epic of a story, story of a sub-task']
+  parent_key varchar [note: 'epic of a story, story of a sub-task']
   summary varchar [not null]
-  description text                          // +
-  acceptance_criteria text                  // +
-  labels json                               // +
   status varchar
-  due_date date                             // + shown on the epic card
-  raw json                                  // + last payload from the tracker
   synced_at timestamp
   Note: 'Local copy of the board; overwritten by Sync from Jira'
 }
 
-Table tracker_links {                       // +
-  id integer [pk, increment]
-  from_key varchar [not null, ref: > tracker_items.key, note: 'the blocked item']
-  to_key varchar [not null, ref: > tracker_items.key, note: 'the blocker']
-  kind varchar [not null, default: 'is blocked by']
-  source varchar [not null, note: 'jira | planner']
-  written_at timestamp [note: 'when written to Jira; null = not yet']
-  Note: 'Dependency links'
-}
 
 // ---------- Publisher ----------
 
 Table chat_sessions {
   id integer [pk, increment]
-  project_id integer [not null, ref: > projects.id]
+  project_id integer [not null]
   claude_session_id varchar [not null]
   created_at timestamp
-  Note: 'Publisher conversations. Display id is PUB-<id zero-padded>'
-}
-
-Table chat_messages {                       // +
-  id integer [pk, increment]
-  chat_session_id integer [not null, ref: > chat_sessions.id]
-  role varchar [not null, note: 'user | assistant | system']
-  text text [not null]
-  attachments json [note: 'names of uploaded files']
-  created_at timestamp
-  Note: 'Shown on reload and in Previous Chats'
+  Note: 'Publisher conversations'
 }
 
 Table publish_records {
   id integer [pk, increment]
-  chat_session_id integer [not null, ref: > chat_sessions.id]
+  chat_session_id integer [not null]
   proposed_items json
   confirmed_at timestamp
-  created_keys json                         // + was varchar
-  created_at timestamp                      // +
+  created_keys varchar
   Note: 'What was written to Jira and when'
 }
 
@@ -83,18 +55,13 @@ Table publish_records {
 
 Table story_runs {
   id integer [pk, increment]
-  project_id integer [not null, ref: > projects.id]
-  story_key varchar [not null, ref: > tracker_items.key]
+  project_id integer [not null]
+  story_key varchar [not null]
   status varchar [not null]
   branch varchar
-  base_commit varchar                       // + "from main at 9489c45" on the plan view
   plan_file varchar [note: 'path to plan.json']
-  readiness json                            // + result of the checks before planning
-  budget float
-  cost float
-  approved_at timestamp                     // +
-  lock_pid integer                          // +
-  heartbeat_at timestamp                    // +
+  budget decimal
+  cost decimal
   started_at timestamp
   ended_at timestamp
   Note: 'One story planning and build'
@@ -102,12 +69,10 @@ Table story_runs {
 
 Table sub_tasks {
   id integer [pk, increment]
-  story_run_id integer [not null, ref: > story_runs.id]
-  key varchar [not null, ref: > tracker_items.key, note: 'title and acceptance criteria are read from tracker_items']
-  status varchar [not null, note: 'queued | running | blocked | interrupted | needs_review | cancelled | done | failed']
-  position integer                          // +
-  parallel_safe boolean                     // +
-  depends_on json                           // + was comma-separated text
+  story_run_id integer [not null]
+  key varchar [not null, note: 'points to tracker_items; title and acceptance criteria are read from there']
+  status varchar [not null, note: 'queued | running | blocked | stopped | done | error']
+  depends_on varchar [note: 'comma separated keys']
   size varchar
   current_stage varchar
   Note: 'One sub-task state inside a story run'
@@ -115,25 +80,20 @@ Table sub_tasks {
 
 Table attempts {
   id integer [pk, increment]
-  sub_task_id integer [not null, ref: > sub_tasks.id]
+  sub_task_id integer [not null]
   number integer [not null]
   working_copy varchar [note: 'Git worktree path']
   outcome varchar
   reason varchar
   started_at timestamp
   ended_at timestamp
-  Note: 'One try at a sub-task. Kept separate from agent_runs: checks and merges belong to the attempt'
+  Note: 'One try at a sub-task (under review: may be folded into agent_runs)'
 }
 
 Table agent_runs {
   id integer [pk, increment]
-  attempt_id integer [ref: > attempts.id, note: 'null for planner, documenter and publisher runs']  // + nullable
-  story_run_id integer [ref: > story_runs.id]        // + planner and documenter runs per story
-  chat_session_id integer [ref: > chat_sessions.id]  // + publisher runs per chat
-  role varchar [not null, note: 'builder | tester | reviewer | planner | documenter | publisher']
-  status varchar                            // +
-  pid integer                               // + to detect interrupted runs
-  session_id varchar                        // +
+  attempt_id integer [not null]
+  role varchar [not null, note: 'builder | tester | reviewer | planner | documenter']
   model_requested varchar
   model_used varchar
   effort varchar
@@ -141,29 +101,26 @@ Table agent_runs {
   input_tokens integer
   output_tokens integer
   cache_tokens integer
-  cost float
+  cost decimal
   duration_s integer
   exit_reason varchar
-  started_at timestamp                      // +
-  ended_at timestamp                        // +
   Note: 'One Claude Code session'
 }
 
 Table checks {
   id integer [pk, increment]
-  attempt_id integer [not null, ref: > attempts.id]
+  attempt_id integer [not null]
   kind varchar [not null, note: 'scope | tests | combined tests']
   passed boolean [not null]
-  output_tail text
-  created_at timestamp                      // +
+  output_tail varchar
   Note: 'Facts the orchestrator measured'
 }
 
 Table merges {
   id integer [pk, increment]
-  attempt_id integer [not null, ref: > attempts.id]
+  attempt_id integer [not null]
   kind varchar [not null, note: 'fast-forward | real']
-  commit_sha varchar                        // + was "commit", an SQL keyword
+  commit varchar
   tests_passed boolean
   merged_at timestamp
   Note: 'Every merge into a story branch'
@@ -171,23 +128,29 @@ Table merges {
 
 Table budget_reservations {
   id integer [pk, increment]
-  story_run_id integer [not null, ref: > story_runs.id]
-  agent_run_id integer [ref: - agent_runs.id]
-  amount float [not null]
+  story_run_id integer [not null]
+  agent_run_id integer
+  amount decimal [not null]
   released boolean [default: false]
-  created_at timestamp                      // +
   Note: 'Money held for running agents'
 }
 
-Table tracker_actions {                     // + audit of every outbound call
-  id integer [pk, increment]
-  item_key varchar [not null, ref: > tracker_items.key]
-  action varchar [not null, note: 'status | label | comment | link | create']
-  payload json
-  status varchar [not null, note: 'pending | sent | failed']
-  tries integer [default: 0]
-  error text
-  created_at timestamp
-  sent_at timestamp
-  Note: 'Outbox: a Jira error never stops a build; the next step catches the board up'
-}
+// ---------- Relationships ----------
+
+Ref: tracker_items.project_id > projects.id
+Ref: story_runs.project_id > projects.id
+Ref: chat_sessions.project_id > projects.id
+Ref: publish_records.chat_session_id > chat_sessions.id
+
+Ref: story_runs.story_key > tracker_items.key
+Ref: sub_tasks.key > tracker_items.key
+Ref: tracker_items.parent_key > tracker_items.key
+
+Ref: sub_tasks.story_run_id > story_runs.id
+Ref: attempts.sub_task_id > sub_tasks.id
+Ref: agent_runs.attempt_id > attempts.id
+Ref: checks.attempt_id > attempts.id
+Ref: merges.attempt_id > attempts.id
+
+Ref: budget_reservations.story_run_id > story_runs.id
+Ref: budget_reservations.agent_run_id - agent_runs.id

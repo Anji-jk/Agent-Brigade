@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from pydantic import ValidationError
@@ -17,6 +18,7 @@ ENV_NAMES = [
     "BRIGADE_REPOSITORY",
     "BRIGADE_PROJECT_PATH",
     "BRIGADE_BASE_BRANCH",
+    "BRIGADE_PROJECT_NAME",
     "BRIGADE_MAX_RETRIES",
     "BRIGADE_MAX_PARALLEL",
     "BRIGADE_TEST_TIMEOUT",
@@ -32,7 +34,7 @@ def clean_env(monkeypatch):
 def load(tmp_path: Path, text: str = "") -> Settings:
     env_file = tmp_path / ".env"
     env_file.write_text(text, encoding="utf-8")
-    return Settings(_env_file=env_file)
+    return cast(Any, Settings)(_env_file=env_file)
 
 
 def test_defaults_when_nothing_is_set(tmp_path):
@@ -120,3 +122,39 @@ def test_env_file_is_in_the_repo_folder():
     from core.settings import ENV_FILE
 
     assert ENV_FILE.parent == Path(__file__).resolve().parents[2]
+
+
+def test_project_name_comes_from_name_then_repository_then_folder_then_key(tmp_path):
+    folder = f"BRIGADE_PROJECT_PATH={tmp_path / 'payments-api'}\n"
+    repo = "BRIGADE_REPOSITORY=SDJKTECH/Skill-Matrix-Testing\n"
+    assert (
+        load(tmp_path, "BRIGADE_PROJECT_NAME=Mine\n" + repo + folder).resolved_project_name
+        == "Mine"
+    )
+    assert load(tmp_path, repo + folder).resolved_project_name == "Skill-Matrix-Testing"
+    assert load(tmp_path, folder).resolved_project_name == "payments-api"
+    assert load(tmp_path, "JIRA_PROJECT_KEY=sm\n").resolved_project_name == "SM"
+    assert load(tmp_path).resolved_project_name == ""
+
+
+def test_a_path_with_a_hidden_escape_character_is_rejected(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text('BRIGADE_PROJECT_PATH="C:\\Users\\anjishnu\\x"\n', encoding="utf-8")
+    with pytest.raises(ValidationError) as error:
+        cast(Any, Settings)(_env_file=env_file)
+    assert "BRIGADE_PROJECT_PATH" in str(error.value)
+    assert "control character" in str(error.value)
+
+
+def test_single_quoted_and_unquoted_windows_paths_are_kept_as_written(tmp_path):
+    for text in ("'C:\\Users\\anjishnu\\x'", "C:\\Users\\anjishnu\\x"):
+        s = load(tmp_path, f"BRIGADE_PROJECT_PATH={text}\n")
+        assert "anjishnu" in str(s.project_path) and "\x07" not in str(s.project_path)
+
+
+@pytest.mark.parametrize(
+    ("email", "initials"),
+    [("anjishnu.kumbhakar@jktech.com", "AK"), ("a@b.com", "A"), ("", "?")],
+)
+def test_user_initials(tmp_path, email, initials):
+    assert load(tmp_path, f"JIRA_EMAIL={email}\n").user_initials == initials

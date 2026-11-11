@@ -4,6 +4,7 @@ Everything else asks get_settings(). For now .env also names the one project Bri
 to work on another project, change those values. Later they move to the projects table.
 """
 
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -38,6 +39,8 @@ class Settings(BaseSettings):
     repository: str = Field("", validation_alias="BRIGADE_REPOSITORY")  # owner/name
     project_path: Path | None = Field(None, validation_alias="BRIGADE_PROJECT_PATH")
     base_branch: str = Field("main", validation_alias="BRIGADE_BASE_BRANCH")
+    # Optional. Empty = name the project from the repository, else from its folder.
+    project_name: str = Field("", validation_alias="BRIGADE_PROJECT_NAME")
 
     # Where things live
     data_dir: Path = Field(DEFAULT_DATA_DIR, validation_alias="BRIGADE_DATA_DIR")
@@ -58,10 +61,39 @@ class Settings(BaseSettings):
     def _upper_key(cls, value: str) -> str:
         return value.strip().upper()
 
+    @field_validator("data_dir", "worktree_root", "project_path", mode="before")
+    @classmethod
+    def _reject_escape_characters(cls, value: object) -> object:
+        # "C:\Users\anjishnu" in double quotes turns \a into a hidden control character.
+        if isinstance(value, str) and any(ord(char) < 32 for char in value):
+            raise ValueError(
+                "the path contains a hidden control character, usually from a backslash escape "
+                "such as \\a or \\t. In .env write Windows paths without quotes, in single quotes, "
+                "or with forward slashes"
+            )
+        return value
+
     @field_validator("data_dir", "worktree_root", "project_path")
     @classmethod
     def _expand(cls, value: Path | None) -> Path | None:
         return value.expanduser() if value is not None else None
+
+    @property
+    def resolved_project_name(self) -> str:
+        """Name shown in the project selector: explicit name, repository, folder, Jira key."""
+        if self.project_name.strip():
+            return self.project_name.strip()
+        if self.repository.strip():
+            return self.repository.strip().rstrip("/").split("/")[-1]
+        if self.project_path is not None and self.project_path.name:
+            return self.project_path.name
+        return self.jira_project_key
+
+    @property
+    def user_initials(self) -> str:
+        """Two letters for the avatar, from the Jira email (anjishnu.kumbhakar@x -> AK)."""
+        parts = [p for p in re.split(r"[._\-+]", self.jira_email.split("@")[0]) if p]
+        return "".join(p[0] for p in parts[:2]).upper() or "?"
 
     @property
     def db_path(self) -> Path:
@@ -85,4 +117,4 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    return Settings()  # type: ignore[call-arg]  # BaseSettings loads omitted fields from env/defaults.
