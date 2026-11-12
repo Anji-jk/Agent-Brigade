@@ -15,6 +15,8 @@ repositories. The design is in `docs/technical-document.md`; the screens are in 
 - `pipeline/`: the orchestrator, plain deterministic Python. Runs agents, checks, merges, retries.
   `runner/` is the agent runner: the only code that starts Claude Code (`runner/claude_runner.py`).
   `publisher/` is the Publisher: its read-only Jira tool, the plan guard and the chat turn.
+  `planning/` is planning a story: readiness checks, the plan and the Planner (ported from Agent Lab).
+  `workspace/` is Git and the project's own commands (its tests); worktrees come here in Phase 4.
 - `core/`: settings, database (`db/`), tracker adapters (`trackers/`), locks, atomic file writes.
 - `tests/`: mirrors the source folders, one test folder per source folder (for example
   `tests/pipeline/publisher/` for `pipeline/publisher/`). `doubles/` holds fake Jira, fake GitHub, recorded Claude streams.

@@ -4,15 +4,18 @@ from sqlalchemy import Engine
 
 from core.db.engine import get_engine, get_session, make_engine, session_factory
 from core.db.models import Base
+from core.db.upgrade import add_missing_columns
 
 
 def init_db(engine: Engine | None = None) -> Engine:
-    """Create any missing tables. Safe to call on every start; never drops or alters.
+    """Create missing tables, then add columns an older brigade.db lacks. Safe on every start.
 
-    No migrations yet: the schema still changes in Phase 2. Alembic comes once it settles.
+    Never drops or changes what is there. No migrations yet: Alembic comes once the schema
+    settles; until then a new column must allow empty values (see upgrade.py).
     """
     engine = engine or get_engine()
     Base.metadata.create_all(engine)
+    add_missing_columns(engine)
     return engine
 
 

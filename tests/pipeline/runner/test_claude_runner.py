@@ -1,6 +1,6 @@
 import json
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
 
@@ -25,15 +25,25 @@ def request(resume=False, prompt="Add a quiz"):
 class FakeRun:
     """Stands in for subprocess.run; remembers the call and the settings file it was given."""
 
-    def __init__(self, stdout: str | bytes = "", stderr="", returncode=0, raises=None):
+    def __init__(
+        self,
+        stdout: str | bytes = "",
+        stderr: str | bytes = "",
+        returncode: int = 0,
+        raises=None,
+    ):
         self.result = subprocess.CompletedProcess([], returncode, stdout, stderr)
         self.raises = raises
         self.calls = []
-        self.settings = None
+        self.settings = {}
 
     def __call__(self, command, **kwargs):
         self.calls.append((command, kwargs))
-        self.settings = json.loads(Path(command[command.index("--settings") + 1]).read_text())
+        if "--settings" in command:
+            settings_index = command.index("--settings")
+            self.settings = json.loads(Path(command[settings_index + 1]).read_text())
+        else:
+            self.settings = {}
         if self.raises:
             raise self.raises
         return self.result
@@ -126,3 +136,105 @@ def test_missing_claude_is_reported(monkeypatch):
     monkeypatch.setattr(runner_module.shutil, "which", lambda _name: None)
     with pytest.raises(AgentError, match="claude --version"):
         ClaudeCliRunner(None, FakeRun()).run(request())
+
+
+def test_the_publisher_still_gets_bash_only_and_no_deny_rules():
+    run = FakeRun(stdout=answer())
+    ClaudeCliRunner("claude", run).run(request())
+    command = run.calls[0][0]
+    assert command[command.index("--tools") + 1] == "Bash"
+    assert "--add-dir" not in command and "--max-turns" not in command
+    assert "deny" not in run.settings["permissions"]
+
+
+def test_a_read_only_agent_gets_its_tools_folders_and_deny_rules():
+    run = FakeRun(stdout=answer())
+    planner = AgentRequest(
+        agent="planner",
+        prompt="Plan SMT-56",
+        cwd=CWD,
+        session_id="11111111-2222-3333-4444-555555555555",
+        resume=False,
+        tools=("Read", "Grep", "Glob"),
+        add_dirs=(Path("/work/skill-matrix"),),
+        deny=("Read(//work/skill-matrix/**/.env)",),
+        max_turns=10,
+    )
+    ClaudeCliRunner("claude", run).run(planner)
+    command = run.calls[0][0]
+    assert command[command.index("--tools") + 1] == "Read,Grep,Glob"
+    assert command[command.index("--add-dir") + 1] == str(Path("/work/skill-matrix"))
+    assert command[command.index("--max-turns") + 1] == "10"
+    assert run.settings["permissions"] == {
+        "allow": [],
+        "defaultMode": "dontAsk",
+        "deny": ["Read(//work/skill-matrix/**/.env)"],
+    }
+
+
+def test_path_rules_use_two_slashes_and_the_windows_drive_as_a_folder():
+    windows = PureWindowsPath("C:/Users/anji/Skill Matrix")
+    assert runner_module.path_rule("Read", windows, "**/.env") == (
+        "Read(//c/Users/anji/Skill Matrix/**/.env)"
+    )
+    assert runner_module.path_rule(
+        "Read", PurePosixPath("/home/anji/sm/"), ".agent-brigade/**"
+    ) == ("Read(//home/anji/sm/.agent-brigade/**)")
+
+
+def test_secret_rules_cover_every_env_file_in_every_folder():
+    rules = runner_module.secret_rules(PurePosixPath("/a"), PurePosixPath("/b"))
+    assert rules == (
+        "Read(//a/**/.env)",
+        "Read(//a/**/.env.*)",
+        "Read(//b/**/.env)",
+        "Read(//b/**/.env.*)",
+    )
+
+
+def test_an_agents_header_is_read_from_its_file(tmp_path):
+    folder = tmp_path / ".claude" / "agents"
+    folder.mkdir(parents=True)
+    (folder / "planner.md").write_text(
+        "---\nname: planner\nmodel: opus\ndescription: a: b\n---\n\nmodel: not this\n", "utf-8"
+    )
+    (folder / "plain.md").write_text("No header here.\n", "utf-8")
+    header = runner_module.agent_header(tmp_path, "planner")
+    assert header == {"name": "planner", "model": "opus", "description": "a: b"}
+    assert runner_module.agent_header(tmp_path, "plain") == {}
+
+
+def test_the_real_planner_header_is_read_only_opus():
+    header = runner_module.agent_header(Path(__file__).resolve().parents[3], "planner")
+    assert header["model"] == "opus"
+    assert header["tools"] == "Read, Grep, Glob"
+
+
+def test_a_spending_cap_is_passed_to_claude_code():
+    run = FakeRun(stdout=answer())
+    capped = AgentRequest(**{**request().__dict__, "max_budget_usd": 2.5})
+    ClaudeCliRunner("claude", run).run(capped)
+    command = run.calls[0][0]
+    assert command[command.index("--max-budget-usd") + 1] == "2.5000"
+    ClaudeCliRunner("claude", run).run(request())
+    assert "--max-budget-usd" not in run.calls[1][0]
+
+
+def test_a_run_that_hit_its_turn_limit_says_which_limit_and_how_big():
+    run = FakeRun(stdout=answer(is_error=True, subtype="error_max_turns", result=""))
+    limited = AgentRequest(**{**request().__dict__, "max_turns": 100})
+    with pytest.raises(AgentError, match=r"stopped: it reached its limit of 100 turns \(error_max"):
+        ClaudeCliRunner("claude", run).run(limited)
+
+
+def test_a_run_that_hit_its_spending_limit_says_so():
+    run = FakeRun(stdout=answer(is_error=True, subtype="error_max_budget_usd", result=""))
+    capped = AgentRequest(**{**request().__dict__, "max_budget_usd": 5.0})
+    with pytest.raises(AgentError, match=r"it reached its spending limit of \$5.00"):
+        ClaudeCliRunner("claude", run).run(capped)
+
+
+def test_a_limit_stop_without_a_known_limit_still_reports_the_reason():
+    run = FakeRun(stdout=answer(is_error=True, subtype="error_max_turns", result=""))
+    with pytest.raises(AgentError, match="publisher agent stopped: error_max_turns"):
+        ClaudeCliRunner("claude", run).run(request())

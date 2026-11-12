@@ -149,7 +149,7 @@ Each requirement is written so it can be checked by running the feature on a rea
 | FR-4  | Checks     | Before planning, check the story, its sub-tasks and the project's CLAUDE.md; report each failure with its fix                              |
 | FR-5  | Planning   | Ask for an optional budget, then produce a plan: order, dependencies, files, parallel-safe marks and the story branch name                 |
 | FR-6  | Planning   | Dependencies missing from Jira are written back as "is blocked by" links with a comment, only after the plan is approved                   |
-| FR-7  | Planning   | Re-plan takes the requested changes and replaces the existing plan                                                                         |
+| FR-7  | Planning   | Re-plan takes the requested changes and makes a new plan, keeping the old one as replaced                                                       |
 | FR-8  | Build      | Create the story branch; give each sub-task its own isolated copy of the code; run builder, tester and reviewer as separate sessions       |
 | FR-9  | Build      | Verify changed files, scope and tests independently of the agents; merge passing work into the story branch in dependency order            |
 | FR-10 | Build      | Retry a failed sub-task with feedback, up to a configurable limit (0 to 5)                                                                 |
@@ -402,13 +402,13 @@ Each failure names the item and the fix. A missing docs folder is a warning, not
 
 ### 10.4 Planning, approval and re-plan
 
-- **Plan** opens an optional budget popup, which can be skipped. The Planner then writes the plan to the project's .agent-brigade/ folder.
+- **Plan** opens an optional budget (dollars for planning and building the story) popup, which can be skipped. The Planner then writes the plan to the project's .agent-brigade/ folder.
 
 - The plan is never written to Jira.
 
 - **Approve** writes any newly found dependencies to Jira as "is blocked by" links with a comment. Git is untouched until Build.
 
-- **Re-plan** asks what should change and replaces the same plan file.
+- **Re-plan** asks what should change (your own idea) and makes a new plan from the previous plan and your idea. The previous plan is kept, marked replaced. An approved plan cannot be re-planned
 
 **Advantages:** wrong plans are cheap to correct; dependencies become visible to the whole team.
 
@@ -498,7 +498,7 @@ Everything lives in the target project's .agent-brigade/ folder. That folder hol
 | File         | Contents                                                          | Written by                             |
 |--------------|-------------------------------------------------------------------|----------------------------------------|
 | brigade.db   | The database (tables below)                                       | Backend and orchestrator               |
-| plan.json    | The current approved plan for a story; replaced on re-plan        | Planner, validated by the orchestrator |
+| plan.json    | One plan per planning run, <project>/.agent-brigade/runs/<run_id>/plan.json. A re-plan writes a new one.        | Planner, validated by the orchestrator |
 | jira.json    | The last Sync from Jira                                           | Jira sync                              |
 | events.jsonl | One line per event, appended as work happens; feeds the live view | Orchestrator                           |
 | reports/     | One report per story                                              | Delivery                               |

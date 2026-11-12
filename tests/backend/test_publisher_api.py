@@ -46,6 +46,8 @@ def world(tmp_path):
         max_retries=1,
         max_parallel=1,
         test_timeout=60,
+        docs_dir="docs",
+        test_command="pytest",
         jira_site_url=SITE,
         jira_email="a@b.c",
         jira_api_token=SecretStr("t"),

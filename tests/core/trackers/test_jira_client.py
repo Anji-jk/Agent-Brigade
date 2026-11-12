@@ -1,6 +1,5 @@
 import base64
 import json
-from typing import Any
 
 import httpx
 import pytest
@@ -37,13 +36,8 @@ def make(handler, seen=None, sleeps=None):
         "a@b.com",
         TOKEN,
         transport=httpx.MockTransport(wrapped),
-        sleep=(sleeps.append if sleeps is not None else lambda _seconds: None),
+        sleep=(sleeps.append if sleeps is not None else lambda _s: None),
     )
-
-
-def make_settings(**values: Any) -> Settings:
-    """Settings from defaults plus `values`, ignoring the .env file."""
-    return Settings(**{"_env_file": None, **values})
 
 
 def body(request):
@@ -92,7 +86,7 @@ def test_adf_lists_code_and_mentions():
 
 def test_sends_basic_auth_to_the_v3_api():
     seen = []
-    make(lambda _r: httpx.Response(200, json={"displayName": "Anji"}), seen).myself()
+    make(lambda r: httpx.Response(200, json={"displayName": "Anji"}), seen).myself()
     request = seen[0]
     assert str(request.url) == f"{SITE}/rest/api/3/myself"
     expected = base64.b64encode(f"a@b.com:{TOKEN}".encode()).decode()
@@ -108,7 +102,7 @@ def test_search_follows_pages_and_maps_issues():
         },
     ]
     seen = []
-    issues = make(lambda _r: httpx.Response(200, json=pages[len(seen) - 1]), seen).search(
+    issues = make(lambda r: httpx.Response(200, json=pages[len(seen) - 1]), seen).search(
         "project = SM"
     )
     assert [i.key for i in issues] == ["SM-1", "SM-2", "SM-3"]
@@ -121,7 +115,7 @@ def test_search_follows_pages_and_maps_issues():
 def test_search_stops_at_the_limit():
     page = {"issues": [issue_json(f"SM-{n}") for n in range(5)], "nextPageToken": "more"}
     seen = []
-    issues = make(lambda _r: httpx.Response(200, json=page), seen).search("x", limit=3)
+    issues = make(lambda r: httpx.Response(200, json=page), seen).search("x", limit=3)
     assert len(issues) == 3 and len(seen) == 1 and body(seen[0])["maxResults"] == 3
 
 
@@ -134,25 +128,25 @@ def test_issue_reads_description_labels_and_due_date():
         labels=["brigade"],
         duedate="2026-12-01",
     )
-    issue = make(lambda _r: httpx.Response(200, json=raw)).issue("SM-1")
+    issue = make(lambda r: httpx.Response(200, json=raw)).issue("SM-1")
     assert issue is not None
     assert issue.description == "Deliver it"
     assert issue.labels == ("brigade",) and issue.due_date == "2026-12-01"
 
 
 def test_missing_issue_is_none():
-    assert make(lambda _r: httpx.Response(404, json={"errorMessages": ["no"]})).issue("X-9") is None
+    assert make(lambda r: httpx.Response(404, json={"errorMessages": ["no"]})).issue("X-9") is None
 
 
 def test_epics_query_quotes_the_key():
     seen = []
-    make(lambda _r: httpx.Response(200, json={"issues": []}), seen).epics('S"M')
+    make(lambda r: httpx.Response(200, json={"issues": []}), seen).epics('S"M')
     assert body(seen[0])["jql"].startswith('project = "S\\"M" AND issuetype = Epic')
 
 
 def test_create_issue_sends_fields_and_returns_the_key():
     seen = []
-    client = make(lambda _r: httpx.Response(201, json={"key": "SM-7"}), seen)
+    client = make(lambda r: httpx.Response(201, json={"key": "SM-7"}), seen)
     key = client.create_issue(
         "SM", "Subtask", "x" * 300, "Line 1\nLine 2", parent="SM-2", labels=["qa"], priority="High"
     )
@@ -164,16 +158,36 @@ def test_create_issue_sends_fields_and_returns_the_key():
     assert fields["description"]["type"] == "doc"
 
 
+def test_a_blocks_link_puts_the_blocker_in_the_inward_issue():
+    seen = []
+    make(lambda r: httpx.Response(201), seen).add_blocks_link("SM-12", "SM-13")
+    (request,) = seen
+    assert request.method == "POST" and request.url.path.endswith("/issueLink")
+    assert body(request) == {
+        "type": {"name": "Blocks"},
+        "inwardIssue": {"key": "SM-12"},
+        "outwardIssue": {"key": "SM-13"},
+    }
+
+
+def test_a_comment_goes_to_its_own_issue_as_rich_text():
+    seen = []
+    make(lambda r: httpx.Response(201, json={}), seen).add_comment("SM-13", "why\n\nbecause")
+    (request,) = seen
+    assert request.url.path.endswith("/issue/SM-13/comment")
+    assert adf_to_text(body(request)["body"]).strip() == "why\n\nbecause"
+
+
 def test_create_without_a_key_in_the_reply_fails():
     with pytest.raises(JiraError, match="did not return a key"):
-        make(lambda _r: httpx.Response(201, json={})).create_issue("SM", "Story", "s", "")
+        make(lambda r: httpx.Response(201, json={})).create_issue("SM", "Story", "s", "")
 
 
 # ---------- errors and retries ----------
 
 
 def test_unauthorised_says_what_to_check_and_hides_the_token():
-    client = make(lambda _r: httpx.Response(401, text="Unauthorized"))
+    client = make(lambda r: httpx.Response(401, text="Unauthorized"))
     with pytest.raises(JiraError) as error:
         client.myself()
     assert error.value.status == 401
@@ -182,25 +196,25 @@ def test_unauthorised_says_what_to_check_and_hides_the_token():
 
 def test_unknown_space_is_named():
     with pytest.raises(JiraError, match="space NOPE was not found"):
-        make(lambda _r: httpx.Response(404, json={})).project("NOPE")
+        make(lambda r: httpx.Response(404, json={})).project("NOPE")
 
 
 def test_rate_limit_is_retried_with_retry_after():
     replies = [httpx.Response(429, headers={"Retry-After": "3"}), httpx.Response(200, json={})]
     seen, sleeps = [], []
-    make(lambda _r: replies[len(seen) - 1], seen, sleeps).myself()
+    make(lambda r: replies[len(seen) - 1], seen, sleeps).myself()
     assert len(seen) == 2 and sleeps == [3.0]
 
 
 def test_retries_stop_after_two():
     seen, sleeps = [], []
     with pytest.raises(JiraError) as error:
-        make(lambda _r: httpx.Response(503, text="busy"), seen, sleeps).myself()
+        make(lambda r: httpx.Response(503, text="busy"), seen, sleeps).myself()
     assert error.value.status == 503 and len(seen) == 3 and len(sleeps) == 2
 
 
 def test_unreachable_site_is_a_jira_error():
-    def fail(_request):
+    def fail(request):
         raise httpx.ConnectError("no route")
 
     with pytest.raises(JiraError, match="unreachable"):
@@ -209,7 +223,7 @@ def test_unreachable_site_is_a_jira_error():
 
 def test_from_settings_names_what_is_missing():
     with pytest.raises(JiraError, match="JIRA_EMAIL, JIRA_API_TOKEN"):
-        JiraClient.from_settings(make_settings(jira_site_url=SITE))
+        JiraClient.from_settings(Settings.model_construct(jira_site_url=SITE))
 
 
 def test_quote_jql():
@@ -230,7 +244,7 @@ def test_check_lists_the_space_and_its_epics():
             200, json={"issues": [issue_json("SM-1", 1, "Epic", summary="Login")], "isLast": True}
         )
 
-    settings = make_settings(jira_project_key="sm")
+    settings = Settings.model_construct(jira_project_key="SM")
     lines = check(make(handler), settings)
     assert lines == [
         f"Connected to {SITE} as Anji",

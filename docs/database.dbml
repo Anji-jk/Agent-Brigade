@@ -57,9 +57,11 @@ Table story_runs {
   id integer [pk, increment]
   project_id integer [not null]
   story_key varchar [not null]
-  status varchar [not null]
+  run_id varchar [unique, note: 'the plan run id, e.g. SMT-56-20261112-a3f9; the approved one is the story run']
+  status varchar [not null, note: 'planning | waiting | approved | superseded | failed']
   branch varchar
   plan_file varchar [note: 'path to plan.json']
+  error text [note: 'why a run failed']
   budget decimal
   cost decimal
   started_at timestamp

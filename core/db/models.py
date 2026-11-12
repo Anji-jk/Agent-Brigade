@@ -72,9 +72,12 @@ class StoryRun(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
     story_key: Mapped[str] = mapped_column(ForeignKey("tracker_items.key"), index=True)
-    status: Mapped[str]
+    # the id of the plan run (e.g. SMT-56-20261112-a3f9); the approved one is the story's run
+    run_id: Mapped[str | None] = mapped_column(String, unique=True, index=True)
+    status: Mapped[str]  # planning | waiting | approved | superseded | failed
     branch: Mapped[str | None]
     plan_file: Mapped[str | None]  # path to plan.json
+    error: Mapped[str | None] = mapped_column(Text)  # why a run failed
     budget: Mapped[float | None] = mapped_column(Money)
     cost: Mapped[float | None] = mapped_column(Money)
     started_at: Mapped[datetime | None]

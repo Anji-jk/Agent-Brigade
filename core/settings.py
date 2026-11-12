@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     base_branch: str = Field("main", validation_alias="BRIGADE_BASE_BRANCH")
     # Optional. Empty = name the project from the repository, else from its folder.
     project_name: str = Field("", validation_alias="BRIGADE_PROJECT_NAME")
+    # The project's docs folder, relative to its root (e.g. docs). Empty = it has none.
+    docs_dir: str = Field("docs", validation_alias="BRIGADE_DOCS_DIR")
+    # How the project's tests run, from its root. Empty = python -m pytest -q.
+    # A leading `python` means the project's own .venv Python when it has one.
+    test_command: str = Field("", validation_alias="BRIGADE_TEST_COMMAND")
 
     # Where things live
     data_dir: Path = Field(DEFAULT_DATA_DIR, validation_alias="BRIGADE_DATA_DIR")
@@ -55,6 +60,15 @@ class Settings(BaseSettings):
     @classmethod
     def _strip_trailing_slash(cls, value: str) -> str:
         return value.strip().rstrip("/")
+
+    @field_validator("docs_dir")
+    @classmethod
+    def _relative_folder(cls, value: str) -> str:
+        folder = value.strip().replace("\\", "/").strip("/")
+        parts = folder.split("/") if folder else []
+        if folder.startswith("~") or ":" in folder or ".." in parts:
+            raise ValueError("must be a folder inside the project, such as docs")
+        return folder
 
     @field_validator("jira_project_key")
     @classmethod

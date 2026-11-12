@@ -1,6 +1,7 @@
 """Small Jira Cloud REST client (API v3), basic auth with an API token.
 
-Read: who am I, a project, issue types, search, one issue, epics of a project.
+Read: who am I, a project, issue types, search, one issue, epics of a project, and the raw
+JSON of searches and issues (for readers that need fields Issue does not keep, such as links).
 Write: create an issue. Nothing here deletes or edits existing work items.
 """
 
@@ -131,34 +132,43 @@ class JiraClient:
         result = self.request("GET", "/issuetype")
         return {str(t["name"]) for t in result or [] if isinstance(t, dict) and t.get("name")}
 
-    def search(self, jql: str, limit: int = 50, fields: list[str] | None = None) -> list[Issue]:
-        """Issues matching `jql`, in the query's order, following pages up to `limit`."""
-        issues: list[Issue] = []
+    def search_raw(self, jql: str, fields: list[str], limit: int = 50) -> list[dict]:
+        """Jira's JSON for the issues matching `jql`, in the query's order, up to `limit`."""
+        found: list[dict] = []
         token: str | None = None
-        while len(issues) < limit:
+        while len(found) < limit:
             body: dict[str, Any] = {
                 "jql": jql,
-                "fields": fields or FIELDS,
-                "maxResults": min(PAGE_SIZE, limit - len(issues)),
+                "fields": fields,
+                "maxResults": min(PAGE_SIZE, limit - len(found)),
             }
             if token:
                 body["nextPageToken"] = token
             page = self.request("POST", "/search/jql", body) or {}
-            issues += [Issue.from_jira(raw) for raw in page.get("issues") or []]
+            found += [raw for raw in page.get("issues") or [] if isinstance(raw, dict)]
             token = page.get("nextPageToken")
             if not token or page.get("isLast", False):
                 break
-        return issues[:limit]
+        return found[:limit]
 
-    def issue(self, key: str) -> Issue | None:
-        """One issue, or None if it does not exist or cannot be seen."""
+    def search(self, jql: str, limit: int = 50, fields: list[str] | None = None) -> list[Issue]:
+        """Issues matching `jql`, in the query's order, following pages up to `limit`."""
+        return [Issue.from_jira(raw) for raw in self.search_raw(jql, fields or FIELDS, limit)]
+
+    def issue_raw(self, key: str, fields: list[str]) -> dict | None:
+        """Jira's JSON for one issue, or None if it does not exist or cannot be seen."""
         try:
-            raw = self.request("GET", f"/issue/{key}?fields={','.join(FIELDS)}")
+            raw = self.request("GET", f"/issue/{key}?fields={','.join(fields)}")
         except JiraError as exc:
             if exc.status == 404:
                 return None
             raise
-        return Issue.from_jira(raw) if isinstance(raw, dict) and raw.get("key") else None
+        return raw if isinstance(raw, dict) and raw.get("key") else None
+
+    def issue(self, key: str) -> Issue | None:
+        """One issue, or None if it does not exist or cannot be seen."""
+        raw = self.issue_raw(key, FIELDS)
+        return Issue.from_jira(raw) if raw else None
 
     def epics(self, project: str, limit: int = 100) -> list[Issue]:
         """Epics of a project, newest first."""
@@ -195,6 +205,26 @@ class JiraClient:
         if not key:
             raise JiraError(f"Jira did not return a key for '{summary}'.")
         return str(key)
+
+    def add_blocks_link(self, blocker: str, blocked: str) -> None:
+        """Make `blocked` "is blocked by" `blocker`.
+
+        Jira's names are the wrong way round for this: the issue that *blocks* goes in
+        ``inwardIssue``. The caller reads the link back afterwards to be sure.
+        """
+        self.request(
+            "POST",
+            "/issueLink",
+            {
+                "type": {"name": "Blocks"},
+                "inwardIssue": {"key": blocker},
+                "outwardIssue": {"key": blocked},
+            },
+        )
+
+    def add_comment(self, key: str, text: str) -> None:
+        """A comment on `key`. (A comment sent with a link lands on the blocker instead.)"""
+        self.request("POST", f"/issue/{key}/comment", {"body": text_to_adf(text)})
 
 
 def _wait_seconds(response: httpx.Response, attempt: int) -> float:

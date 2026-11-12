@@ -1,1 +1,1 @@
-"""Uploaded documents: reading their text (extract) and keeping the originals (uploads)."""
+"""Files: uploaded documents (extract, uploads) and atomic JSON writes (atomic)."""

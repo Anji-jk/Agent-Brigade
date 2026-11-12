@@ -3,8 +3,6 @@
 from dataclasses import dataclass
 from typing import Any
 
-from core.trackers.jira.adf import adf_to_text
-
 
 def _name(value: Any) -> str | None:
     return value.get("name") if isinstance(value, dict) else None
@@ -41,6 +39,10 @@ class Issue:
 
     @classmethod
     def from_jira(cls, payload: dict) -> "Issue":
+        # Imported here, not at the top: importing core.trackers.jira loads the client, which
+        # imports this module, so a top-level import fails when this module is imported first.
+        from core.trackers.jira.adf import adf_to_text
+
         fields = payload.get("fields") or {}
         issue_type = fields.get("issuetype") or {}
         parent = fields.get("parent") or {}
@@ -56,3 +58,50 @@ class Issue:
             due_date=fields.get("duedate"),
             subtask_keys=tuple(s["key"] for s in fields.get("subtasks") or () if "key" in s),
         )
+
+
+# ---------- One story, read for planning ----------
+
+
+@dataclass(frozen=True)
+class Link:
+    """One side of a Jira issue link, seen from the item that has it."""
+
+    kind: str  # the link type's name, e.g. "Blocks"
+    phrase: str  # how it reads from this item, e.g. "is blocked by"
+    key: str  # the other item
+    summary: str = ""
+
+
+@dataclass(frozen=True)
+class WorkItem:
+    """A story or sub-task with what planning needs: text, criteria and links."""
+
+    key: str
+    type: str  # Jira's own type name (Story, Subtask, Task...)
+    summary: str
+    description: str
+    status: str
+    done: bool  # Jira's status category is Done
+    labels: tuple[str, ...]
+    priority: str | None
+    url: str
+    links: tuple[Link, ...] = ()
+    acceptance_criteria: str | None = None
+    blocked_by: tuple[str, ...] = ()  # sibling sub-tasks this one "is blocked by"
+
+
+@dataclass(frozen=True)
+class Epic:
+    key: str
+    summary: str
+
+
+@dataclass(frozen=True)
+class Story:
+    story: WorkItem
+    epic: Epic | None
+    subtasks: tuple[WorkItem, ...] = ()
+
+    def open_subtasks(self) -> tuple[WorkItem, ...]:
+        return tuple(item for item in self.subtasks if not item.done)

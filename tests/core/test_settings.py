@@ -19,6 +19,8 @@ ENV_NAMES = [
     "BRIGADE_PROJECT_PATH",
     "BRIGADE_BASE_BRANCH",
     "BRIGADE_PROJECT_NAME",
+    "BRIGADE_DOCS_DIR",
+    "BRIGADE_TEST_COMMAND",
     "BRIGADE_MAX_RETRIES",
     "BRIGADE_MAX_PARALLEL",
     "BRIGADE_TEST_TIMEOUT",
@@ -158,3 +160,19 @@ def test_single_quoted_and_unquoted_windows_paths_are_kept_as_written(tmp_path):
 )
 def test_user_initials(tmp_path, email, initials):
     assert load(tmp_path, f"JIRA_EMAIL={email}\n").user_initials == initials
+
+
+def test_docs_dir_and_test_command(tmp_path):
+    s = load(
+        tmp_path,
+        "BRIGADE_DOCS_DIR=\\docs\\features\\\nBRIGADE_TEST_COMMAND=python -m pytest -q backend\n",
+    )
+    assert s.docs_dir == "docs/features"
+    assert s.test_command == "python -m pytest -q backend"
+    assert (load(tmp_path).docs_dir, load(tmp_path).test_command) == ("docs", "")
+
+
+@pytest.mark.parametrize("folder", ["../x", "docs/../..", "C:/docs", "~/docs"])
+def test_docs_dir_must_be_inside_the_project(tmp_path, folder):
+    with pytest.raises(ValidationError, match="folder inside the project"):
+        load(tmp_path, f"BRIGADE_DOCS_DIR={folder}\n")

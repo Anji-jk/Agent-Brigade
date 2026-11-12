@@ -6,9 +6,13 @@ the small AgentRunner interface below, so another way of running agents (the Cla
 Strands, a hosted runner) can replace ClaudeCliRunner without changes elsewhere.
 
 How an agent is restricted, when started by ClaudeCliRunner:
-- --tools Bash: Bash is the only built-in tool it has (no Read, Edit, Write, web);
+- --tools: the only built-in tools it has (Bash for the Publisher; Read, Grep and Glob for the
+  Planner; never Edit, Write or web unless a request names them);
 - a settings file with permissions.allow listing the exact commands it may run, and
   --permission-mode dontAsk, so anything not listed is refused instead of asked about;
+- permissions.deny in the same file: files it may never read, such as every .env;
+- --max-turns and --max-budget-usd: how many steps and how many dollars one run may use;
+- --add-dir: folders besides the Agent-Brigade folder it may read (the project being planned);
 - --setting-sources project: your personal Claude Code settings (which may allow more) are
   not loaded; --strict-mcp-config: no MCP servers.
 """
@@ -19,7 +23,7 @@ import subprocess
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any, Protocol
 
 DEFAULT_TIMEOUT_SECONDS = 600.0
@@ -39,6 +43,11 @@ class AgentRequest:
     resume: bool  # True: continue that session; False: start a new one with this id
     allowed_bash: tuple[str, ...] = ()  # e.g. "python -m pipeline.publisher.cli epics"
     timeout: float = DEFAULT_TIMEOUT_SECONDS
+    tools: tuple[str, ...] = ("Bash",)  # the built-in tools it has, nothing else
+    add_dirs: tuple[Path, ...] = ()  # folders besides cwd it may read
+    deny: tuple[str, ...] = ()  # permission rules it may never use, e.g. "Read(//c/x/.env)"
+    max_turns: int | None = None  # None: Claude Code's own limit
+    max_budget_usd: float | None = None  # None: no spending cap for this run
 
 
 @dataclass(frozen=True)
@@ -54,14 +63,36 @@ class AgentRunner(Protocol):
     def run(self, request: AgentRequest) -> AgentReply: ...
 
 
-def claude_settings(allowed_bash: tuple[str, ...]) -> dict[str, Any]:
-    """The Claude Code settings for one run: only these Bash commands, nothing else."""
-    return {
-        "permissions": {
-            "allow": [f"Bash({command})" for command in allowed_bash],
-            "defaultMode": "dontAsk",
-        }
+def claude_settings(allowed_bash: tuple[str, ...], deny: tuple[str, ...] = ()) -> dict[str, Any]:
+    """The Claude Code settings for one run: only these Bash commands, and never `deny`."""
+    permissions: dict[str, Any] = {
+        "allow": [f"Bash({command})" for command in allowed_bash],
+        "defaultMode": "dontAsk",
     }
+    if deny:
+        permissions["deny"] = list(deny)
+    return {"permissions": permissions}
+
+
+def path_rule(tool: str, folder: PurePath, pattern: str) -> str:
+    """A permission rule for `pattern` under an absolute `folder`, e.g. Read(//c/proj/**/.env).
+
+    Claude Code writes an absolute path with two leading slashes, and on Windows matches
+    paths in POSIX form with the drive as a lower-case folder: C:\\Users becomes /c/Users.
+    """
+    posix = folder.as_posix()
+    if folder.drive:
+        posix = "/" + folder.drive[0].lower() + posix[len(folder.drive) :]
+    return f"{tool}(/{posix.rstrip('/')}/{pattern})"
+
+
+def secret_rules(*folders: PurePath) -> tuple[str, ...]:
+    """Deny rules that keep every .env file in these folders, at any depth, unread."""
+    return tuple(
+        path_rule("Read", folder, pattern)
+        for folder in folders
+        for pattern in ("**/.env", "**/.env.*")
+    )
 
 
 def claude_command(executable: str, request: AgentRequest, settings_file: Path) -> list[str]:
@@ -73,7 +104,7 @@ def claude_command(executable: str, request: AgentRequest, settings_file: Path) 
         "--output-format",
         "json",
         "--tools",
-        "Bash",
+        ",".join(request.tools),
         "--permission-mode",
         "dontAsk",
         "--setting-sources",
@@ -82,9 +113,25 @@ def claude_command(executable: str, request: AgentRequest, settings_file: Path) 
         str(settings_file),
         "--strict-mcp-config",
     ]
+    for folder in request.add_dirs:
+        command += ["--add-dir", str(folder)]
+    if request.max_turns is not None:
+        command += ["--max-turns", str(request.max_turns)]
+    if request.max_budget_usd is not None:
+        command += ["--max-budget-usd", f"{request.max_budget_usd:.4f}"]
     if request.resume:
         return [*command, "--resume", request.session_id]
     return [*command, "--session-id", request.session_id]
+
+
+def stop_reason(result: dict[str, Any], request: AgentRequest) -> str:
+    """Why the agent stopped, in words; a limit it hit says which one and how big it was."""
+    subtype = result.get("subtype")
+    if subtype == "error_max_turns" and request.max_turns:
+        return f"it reached its limit of {request.max_turns} turns ({subtype})"
+    if subtype == "error_max_budget_usd" and request.max_budget_usd:
+        return f"it reached its spending limit of ${request.max_budget_usd:.2f} ({subtype})"
+    return str(result.get("result") or subtype or "unknown error")
 
 
 def parse_reply(stdout: str, stderr: str, returncode: int, request: AgentRequest) -> AgentReply:
@@ -97,7 +144,7 @@ def parse_reply(stdout: str, stderr: str, returncode: int, request: AgentRequest
     if not isinstance(result, dict):
         raise AgentError("Claude Code returned an unexpected answer.")
     if result.get("is_error") or result.get("subtype") not in (None, "success"):
-        reason = str(result.get("result") or result.get("subtype") or "unknown error")
+        reason = stop_reason(result, request)
         raise AgentError(f"The {request.agent} agent stopped: {reason[:MAX_ERROR_CHARS]}")
     return AgentReply(
         text=str(result.get("result") or ""),
@@ -134,7 +181,8 @@ class ClaudeCliRunner:
             )
         with tempfile.TemporaryDirectory(prefix="brigade-agent-") as folder:
             settings_file = Path(folder) / "settings.json"
-            settings_file.write_text(json.dumps(claude_settings(request.allowed_bash)), "utf-8")
+            settings = claude_settings(request.allowed_bash, request.deny)
+            settings_file.write_text(json.dumps(settings), "utf-8")
             try:
                 # Bytes, not text mode: text mode on Windows turns every \n of the prompt into
                 # \r\n, which Claude Code then stores in the transcript.
@@ -153,3 +201,18 @@ class ClaudeCliRunner:
             except OSError as exc:
                 raise AgentError(f"Claude Code could not be started: {exc}") from exc
         return parse_reply(_text(done.stdout), _text(done.stderr), done.returncode, request)
+
+
+def agent_header(cwd: Path, agent: str) -> dict[str, str]:
+    """The simple `key: value` lines of .claude/agents/<agent>.md's header, such as its model."""
+    text = (Path(cwd) / ".claude" / "agents" / f"{agent}.md").read_text(encoding="utf-8")
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---" or "---" not in [x.strip() for x in lines[1:]]:
+        return {}
+    end = [x.strip() for x in lines].index("---", 1)
+    header = {}
+    for line in lines[1:end]:
+        key, colon, value = line.partition(":")
+        if colon and key.strip():
+            header[key.strip()] = value.strip()
+    return header

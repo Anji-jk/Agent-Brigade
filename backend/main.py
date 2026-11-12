@@ -12,7 +12,8 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
-from backend.api import health, projects, publisher
+from backend.api import health, planning, projects, publisher
+from backend.services.planning import Executor, PlanningService
 from backend.services.projects import sync_env_project
 from backend.services.publisher import PublisherService
 from core.db import get_session, init_db, make_engine
@@ -47,8 +48,10 @@ def create_app(
     runner: AgentRunner | None = None,
     jira_factory: Callable[[Settings], JiraClient] = JiraClient.from_settings,
     claude_home: Path = CLAUDE_HOME,
+    planning_executor: Executor | None = None,
 ) -> FastAPI:
-    """The app. Tests pass a fake runner, a fake Jira and a temporary Claude folder."""
+    """The app. Tests pass a fake runner, a fake Jira, a temporary Claude folder and an executor
+    that plans at once instead of in a worker thread."""
     settings = settings or load_settings()
 
     @asynccontextmanager
@@ -58,10 +61,14 @@ def create_app(
         with get_session(engine) as session:
             sync_env_project(session, settings)
         app.state.engine = engine
-        app.state.publisher = PublisherService(
-            settings, engine, runner or ClaudeCliRunner(), jira_factory, claude_home
+        agents = runner or ClaudeCliRunner()
+        app.state.publisher = PublisherService(settings, engine, agents, jira_factory, claude_home)
+        app.state.planning = PlanningService(
+            settings, engine, agents, jira_factory, planning_executor
         )
+        app.state.planning.recover()  # runs left planning by the last stop are marked failed
         yield
+        app.state.planning.close()
         engine.dispose()
 
     app = FastAPI(title="Agent Brigade", lifespan=lifespan)
@@ -69,6 +76,7 @@ def create_app(
     app.include_router(health.router, prefix="/api")
     app.include_router(projects.router, prefix="/api")
     app.include_router(publisher.router, prefix="/api")
+    app.include_router(planning.router, prefix="/api")
     # Last, so /api/* wins: the page and its files
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
     return app
