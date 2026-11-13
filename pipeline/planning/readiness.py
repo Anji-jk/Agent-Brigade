@@ -19,224 +19,48 @@ python -m pipeline.planning.readiness SMT-12 [--skip-tests]
 
 import argparse
 import sys
-from dataclasses import dataclass
-from pathlib import Path
 
 from core.settings import Settings, get_settings
 from core.trackers.errors import TrackerError
 from core.trackers.jira.client import JiraClient
 from core.trackers.jira.story import read_story
 from core.trackers.models import Story
-from pipeline.planning.project_check import check_project
-from pipeline.planning.safety import prohibitions
-from pipeline.workspace import commands, git
+from pipeline.planning.check_model import (
+    FAILED,
+    GROUPS,
+    LABELS,
+    OK,
+    SKIPPED,
+    WARNING,
+    Check,
+    StoryCheck,
+    plural,
+)
+from pipeline.planning.project_checks import (
+    TESTS_PASS,
+    check_checkout,
+    check_project_files,
+    check_tests,
+)
+from pipeline.planning.story_checks import check_story
 
-OK, FAILED, WARNING, SKIPPED = "ok", "failed", "warning", "skipped"
-LABELS = {OK: "ok", FAILED: "FAIL", WARNING: "--", SKIPPED: "skip"}
-GROUPS = ("Story", "Checkout", "Project", "Tests")
-NO_TESTS_EXIT_CODE = 5  # pytest's code for "collected nothing"
-TESTS_PASS = "The project's tests pass on the base branch"
-
-
-@dataclass(frozen=True)
-class Check:
-    group: str
-    status: str
-    what: str
-    detail: str = ""
-
-
-@dataclass(frozen=True)
-class StoryCheck:
-    story_key: str
-    checks: tuple[Check, ...]
-
-    @property
-    def failed(self) -> list[Check]:
-        return [check for check in self.checks if check.status == FAILED]
-
-    @property
-    def warnings(self) -> list[Check]:
-        return [check for check in self.checks if check.status == WARNING]
-
-    @property
-    def ready(self) -> bool:
-        return not self.failed
-
-
-def _plural(count: int, word: str) -> str:
-    return f"{count} {word}{'' if count == 1 else 's'}"
-
-
-# ---------- Story ----------
-
-
-def _loops(story: Story) -> list[str]:
-    """Open sub-tasks that are part of a cycle of blocked-by links."""
-    waiting = {item.key: set(item.blocked_by) for item in story.open_subtasks()}
-    for blockers in waiting.values():
-        blockers.intersection_update(waiting)
-    cyclic: set[str] = set()
-    for start in waiting:
-        pending, seen = list(waiting[start]), set()
-        while pending:
-            current = pending.pop()
-            if current == start:
-                cyclic.add(start)
-                break
-            if current not in seen:
-                seen.add(current)
-                pending.extend(waiting[current] - seen)
-    return sorted(cyclic)
-
-
-def check_story(story: Story) -> list[Check]:
-    """The story and its sub-tasks, as Jira has them now."""
-    key = story.story.key
-    if not story.subtasks:
-        return [Check("Story", FAILED, f"{key} has sub-tasks", "It has none: nothing to plan.")]
-    found = [Check("Story", OK, f"{key} has {_plural(len(story.subtasks), 'sub-task')}")]
-    open_items = story.open_subtasks()
-    done = [item.key for item in story.subtasks if item.done]
-    if not open_items:
-        detail = "Every sub-task is Done in Jira; nothing is left to do."
-        return [*found, Check("Story", FAILED, "Some sub-tasks are still open", detail)]
-    left_out = f"Done in Jira and left out: {', '.join(done)}" if done else ""
-    found.append(Check("Story", OK, f"{len(open_items)} open", left_out))
-
-    what = "Every open sub-task has acceptance criteria"
-    missing = [item.key for item in open_items if not item.acceptance_criteria]
-    found.append(
-        Check(
-            "Story",
-            FAILED,
-            what,
-            f'Missing in {", ".join(missing)}. Add an "Acceptance criteria:" part to their '
-            "descriptions in Jira.",
-        )
-        if missing
-        else Check("Story", OK, what)
-    )
-
-    what = "The text does not forbid the work"
-    reasons = [
-        f"{item.key} {reason}"
-        for item in (story.story, *open_items)
-        for reason in prohibitions(f"{item.summary}\n{item.description}")
-    ]
-    found.append(
-        Check("Story", FAILED, what, "; ".join(reasons)) if reasons else Check("Story", OK, what)
-    )
-
-    what = "Jira's blocked-by links do not loop"
-    looping = _loops(story)
-    links = sum(len(item.blocked_by) for item in open_items)
-    if looping:
-        found.append(
-            Check("Story", FAILED, what, f"These wait for each other: {', '.join(looping)}.")
-        )
-    else:
-        detail = (
-            f"{_plural(links, 'link')} between the sub-tasks"
-            if links
-            else "no links; the planner finds the order from the descriptions"
-        )
-        found.append(Check("Story", OK, what, detail))
-    return found
-
-
-# ---------- Checkout ----------
-
-
-def check_checkout(folder: Path, base_branch: str) -> list[Check]:
-    """A clean checkout on the base branch: the plan must match what the build starts from."""
-    try:
-        root = git.repository_root(folder)
-        base_branch = git.validate_base_ref(base_branch)
-    except git.GitError as exc:
-        return [Check("Checkout", FAILED, "The project folder is a Git repository", str(exc))]
-    base = git.commit_of(root, base_branch)
-    if base is None:
-        return [
-            Check(
-                "Checkout",
-                FAILED,
-                f"The base branch {base_branch} exists",
-                f"{base_branch!r} is not a branch here (BRIGADE_BASE_BRANCH in .env).",
-            )
-        ]
-    found = [Check("Checkout", OK, f"The base branch {base_branch} exists", base[:12])]
-    try:
-        changes = git.changed_files(root)
-        head, branch = git.head_commit(root), git.current_branch(root)
-    except git.GitError as exc:
-        return [*found, Check("Checkout", FAILED, "Git can read the checkout", str(exc))]
-    found.append(
-        Check(
-            "Checkout",
-            FAILED,
-            "No uncommitted changes",
-            f"{_plural(len(changes), 'changed or new file')} (first: {changes[0]}). "
-            "Commit or stash them first.",
-        )
-        if changes
-        else Check("Checkout", OK, "No uncommitted changes")
-    )
-    on_base = head == base and branch == base_branch
-    found.append(
-        Check(
-            "Checkout",
-            FAILED,
-            f"On {base_branch}",
-            f"The checkout is on {branch or 'a detached HEAD'} at {head[:12]}, but {base_branch} "
-            f"is {base[:12]}. Check out {base_branch} first.",
-        )
-        if not on_base
-        else Check("Checkout", OK, f"On {base_branch}")
-    )
-    return found
-
-
-# ---------- Project and tests ----------
-
-
-def check_project_files(folder: Path, docs_dir: str) -> list[Check]:
-    """CLAUDE.md and the docs folder: warnings only, a project with less still plans."""
-    return [
-        Check("Project", OK if finding.found else WARNING, finding.what)
-        for finding in check_project(folder, docs_dir)
-    ]
-
-
-def check_tests(folder: Path, configured: str, timeout: int) -> Check:
-    """Run the project's tests where the checkout stands (on the base branch)."""
-    command = commands.project_test_command(folder, configured)
-    result = commands.run_command(command, folder, timeout=timeout)
-    shown = " ".join(command)
-    if result.passed:
-        return Check("Tests", OK, TESTS_PASS, f"{shown} ({result.seconds:.0f}s)")
-    if result.timed_out:
-        return Check(
-            "Tests",
-            FAILED,
-            TESTS_PASS,
-            f"{shown} did not finish in {timeout}s (BRIGADE_TEST_TIMEOUT in .env).",
-        )
-    if result.exit_code == NO_TESTS_EXIT_CODE and "pytest" in command:
-        return Check(
-            "Tests",
-            WARNING,
-            "The project has tests",
-            "pytest found none, so a sub-task is judged only on its own new tests.",
-        )
-    last = (result.output_tail.strip().splitlines() or [""])[-1][:200]
-    code = "could not start" if result.exit_code is None else f"exit code {result.exit_code}"
-    return Check(
-        "Tests",
-        FAILED,
-        TESTS_PASS,
-        f"{shown} ended with {code}: {last} (BRIGADE_TEST_COMMAND in .env sets the command).",
-    )
+# The checks live in check_model, story_checks and project_checks; they are named here too,
+# because this is the module the rest of the code (and python -m) uses.
+__all__ = [
+    "FAILED",
+    "OK",
+    "SKIPPED",
+    "WARNING",
+    "Check",
+    "StoryCheck",
+    "check_checkout",
+    "check_project_files",
+    "check_story",
+    "check_tests",
+    "format_checks",
+    "main",
+    "run_checks",
+]
 
 
 def run_checks(story: Story, settings: Settings, *, run_tests: bool = True) -> StoryCheck:
@@ -279,14 +103,14 @@ def format_checks(result: StoryCheck) -> str:
     lines.append("")
     failed, warnings = len(result.failed), len(result.warnings)
     lines.append(
-        f"{_plural(failed, 'check')} failed; nothing was planned. "
+        f"{plural(failed, 'check')} failed; nothing was planned. "
         "Fix the lines marked FAIL and check again."
         if failed
         else "Ready to plan."
     )
     if warnings:
         lines.append(
-            f"{_plural(warnings, 'warning')} (--): they stop nothing; "
+            f"{plural(warnings, 'warning')} (--): they stop nothing; "
             "filling them in helps the agents."
         )
     return "\n".join(lines)

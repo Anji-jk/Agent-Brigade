@@ -12,16 +12,23 @@ The planning itself is in pipeline.planning; this service adds what needs the da
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol
 
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from backend.services.planning_jobs import JobContext, PlanningJob, run_job
 from backend.services.planning_tree import TreeView, build_tree
+from backend.services.planning_types import (
+    STOPPED,
+    Conflict,
+    Executor,
+    NotFound,
+    PlanningServiceError,
+    RunView,
+    run_id_of,
+)
 from core.db import get_session
 from core.db.models import StoryRun, TrackerItem
 from core.db.repositories import story_runs as runs
@@ -37,38 +44,6 @@ from pipeline.planning.plan_file import PlanFileError, load_plan
 from pipeline.planning.readiness import StoryCheck, run_checks
 from pipeline.runner.claude_runner import AgentRunner
 from pipeline.workspace.git import repository_root
-
-STOPPED = "Brigade stopped while this run was planning. Plan the story again."
-
-
-def run_id_of(row: StoryRun) -> str:
-    """The run id of a row this service made: it always sets one."""
-    if row.run_id is None:
-        raise PlanningServiceError(f"Run row {row.id} has no run id.")
-    return row.run_id
-
-
-class PlanningServiceError(Exception):
-    status = 400
-
-
-class NotFound(PlanningServiceError):
-    status = 404
-
-
-class Conflict(PlanningServiceError):
-    status = 409
-
-
-class Executor(Protocol):
-    def submit(self, fn: Callable[..., Any], /, *args: Any) -> Any: ...
-
-
-@dataclass(frozen=True)
-class RunView:
-    row: StoryRun
-    plan: dict[str, Any] | None  # plan.json, once the run has one
-    plan_error: str | None = None  # why a plan file that should be there could not be read
 
 
 class PlanningService:
@@ -121,15 +96,15 @@ class PlanningService:
                 last_synced(session, project_id),
             )
 
-    def checks(self, key: str) -> StoryCheck:
-        """The fast checks, without the tests: the tests run when the story is planned."""
+    def checks(self, key: str, run_tests: bool = False) -> StoryCheck:
+        """The checks before planning. The tests run only when asked: Plan runs them anyway."""
         key = check_story_key(key, self._settings.jira_project_key or None)
         client = self._client_factory(self._settings)
         try:
             story = read_story(client, key, self._settings.jira_project_key or None)
         finally:
             client.close()
-        return run_checks(story, self._settings, run_tests=False)
+        return run_checks(story, self._settings, run_tests=run_tests)
 
     def checks_context(self) -> tuple[str, str]:
         """The project folder (empty if none is set) and the base branch the checks look at."""

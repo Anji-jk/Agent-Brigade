@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from backend.schemas.planning import (
     CheckOut,
+    ChecksIn,
     ChecksOut,
     EpicOut,
     ItemOut,
@@ -128,9 +129,9 @@ def tree(request: Request) -> TreeOut:
 
 
 @router.post("/stories/{key}/checks")
-def checks(key: str, request: Request) -> ChecksOut:
+def checks(key: str, request: Request, body: ChecksIn | None = None) -> ChecksOut:
     planning = service(request)
-    result = run(lambda: planning.checks(key))
+    result = run(lambda: planning.checks(key, bool(body and body.run_tests)))
     folder, base_branch = planning.checks_context()
     return ChecksOut(
         story_key=result.story_key,

@@ -1,0 +1,245 @@
+/* The plan panel of the Planning page (js/components/plan-*.js, js/tabs/plan-panel.js). */
+.pl-body.has-side {
+    grid-template-columns: var(--pl-left) minmax(300px, 0.9fr) minmax(0, 1.3fr);
+}
+
+.pl-side {
+    position: sticky;
+    top: 0;
+    height: calc(100vh - 200px);
+    min-height: 440px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+    overflow: hidden;
+}
+
+.pl-side[hidden] {
+    display: none;
+}
+
+.pl-side-in {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.pl-side-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+}
+
+.pl-side-head h2 {
+    flex: 1;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--navy);
+}
+
+.pl-side-head>.icon {
+    color: var(--gold);
+}
+
+.pl-side-body {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px 16px;
+}
+
+.pl-runs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.pl-runchip {
+    font: inherit;
+    cursor: pointer;
+}
+
+.pl-runchip.current {
+    border-color: var(--gold-light);
+    background: var(--sand);
+}
+
+.pl-notice {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+}
+
+.pl-notice span:not(.dots) {
+    flex: 1;
+}
+
+.pl-notice .icon {
+    flex: none;
+}
+
+.pl-notice.pl-ok .icon {
+    color: var(--ok);
+}
+
+.pl-notice.pl-warn .icon {
+    color: var(--gold);
+}
+
+.pl-notice.pl-bad .icon {
+    color: var(--bad);
+}
+
+.pl-notice .dots.small {
+    width: 22px;
+}
+
+.pl-plan {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.pl-summary {
+    padding: 12px 14px;
+    border: 1px solid var(--warn-line);
+    border-radius: 12px;
+    background: #fffaf0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.pl-summary h3 {
+    margin-bottom: 4px;
+    font-size: 16px;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.pl-tasks-title {
+    padding: 6px 12px;
+    border-radius: 8px;
+    background: var(--sand-strong);
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.pl-task {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+}
+
+.pl-task-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+    overflow-wrap: anywhere;
+}
+
+.pl-tid {
+    padding: 2px 10px;
+    border-radius: 8px;
+    background: var(--sand-strong);
+    color: #8a5600;
+    font-weight: 700;
+}
+
+.pl-tail {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 14px;
+    border: 1px dashed var(--line);
+    border-radius: 12px;
+}
+
+.pl-prow {
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 10px;
+}
+
+.pl-plabel {
+    font-weight: 700;
+    color: var(--navy);
+}
+
+.pl-pvalue {
+    overflow-wrap: anywhere;
+}
+
+.pl-new {
+    display: inline-block;
+    padding: 0 8px;
+    border-radius: 6px;
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-line);
+    color: #8a5600;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.pl-approve {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--line);
+    background: linear-gradient(to top, #fef4df 0, var(--surface) 100%);
+}
+
+.pl-approve>.icon {
+    color: var(--gold);
+    flex: none;
+}
+
+.pl-ask {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+@media (max-width: 1300px) {
+    .pl-body.has-side {
+        grid-template-columns: var(--pl-left) minmax(0, 1fr);
+    }
+
+    .pl-body.has-side .pl-main {
+        display: none;
+    }
+}
+
+@media (max-width: 1000px) {
+    .pl-body.has-side {
+        grid-template-columns: 1fr;
+    }
+
+    .pl-side {
+        position: static;
+        height: 70vh;
+    }
+}
+
+.pl-pvalue .chips {
+    margin-top: 0;
+}
+
+.pl-pvalue .file-chip {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}

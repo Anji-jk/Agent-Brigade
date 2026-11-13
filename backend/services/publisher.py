@@ -16,86 +16,47 @@ import json
 import threading
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import Engine, delete, select
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
+from backend.services.publisher_files import prepare_files, save_files
+from backend.services.publisher_records import (
+    confirmed_keys,
+    confirmed_records,
+    created_from,
+    last_confirmed,
+    open_proposal,
+    withdraw_open_proposal,
+)
+from backend.services.publisher_types import (
+    ChatSummary,
+    ChatView,
+    ConfirmResult,
+    Conflict,
+    NotFound,
+    PublisherError,
+    TurnResult,
+    Upload,
+    display_id,
+)
 from core.db import get_session
 from core.db.models import ChatSession, Project, PublishRecord
 from core.db.repositories.projects import sync_env_project
 from core.files import uploads
-from core.files.extract import FileRejected, extract_text
 from core.settings import Settings
 from core.trackers.jira.client import JiraClient
 from pipeline.publisher.attachments import message_with_files
-from pipeline.publisher.chat import MAX_MESSAGE_CHARS, REPO_ROOT, PublisherChat, Turn
+from pipeline.publisher.chat import REPO_ROOT, PublisherChat, Turn
 from pipeline.publisher.guard import parse_plan
-from pipeline.publisher.publish import NOTE_START, Created, PublishResult, created_note, publish
+from pipeline.publisher.publish import NOTE_START, PublishResult, created_note, publish
 from pipeline.publisher.transcript import CLAUDE_HOME, Bubble, find_transcript, read_chat
 from pipeline.runner.claude_runner import AgentRunner
 
-CHAT_PREFIX = "PUB-"
 MAX_LISTED_CHATS = 100
 TITLE_CHARS = 80
-MAX_FILES = 5  # per message
-
-
-class PublisherError(Exception):
-    status = 400
-
-
-class NotFound(PublisherError):
-    status = 404
-
-
-class Conflict(PublisherError):
-    status = 409
-
-
-def display_id(chat_id: int) -> str:
-    return f"{CHAT_PREFIX}{chat_id:06d}"
-
-
-@dataclass(frozen=True)
-class Upload:
-    name: str  # as the user's computer named it
-    data: bytes
-
-
-@dataclass(frozen=True)
-class TurnResult:
-    chat_id: int
-    turn: Turn
-    proposal_id: int | None
-
-
-@dataclass(frozen=True)
-class ConfirmResult:
-    chat_id: int
-    record_id: int | None  # None when nothing was created
-    result: PublishResult
-
-
-@dataclass(frozen=True)
-class ChatSummary:
-    chat_id: int
-    created_at: datetime | None
-    title: str | None  # the first message, or None when the transcript was deleted
-    created_keys: list[str]
-
-
-@dataclass(frozen=True)
-class ChatView:
-    chat_id: int
-    created_at: datetime | None
-    bubbles: list[Bubble] | None  # None: Claude Code deleted the transcript
-    proposal_id: int | None
-    proposal: dict | None
-    records: list[PublishRecord]  # confirmed, oldest first
-    files: list[uploads.StoredFile]  # every document attached in this chat
 
 
 class PublisherService:
@@ -126,7 +87,7 @@ class PublisherService:
         """A new chat. The row and the files are written only after the agent answered, so a
         failed start leaves nothing behind."""
         self._project_id()  # fail early when .env names no project
-        prepared = self._prepare(message, files or [], already=0)
+        prepared = prepare_files(message, files or [], already=0)
         turn = self._chat.send(message_with_files(message, [(n, t) for n, t, _ in prepared]))
         with get_session(self._engine) as session:
             row = ChatSession(
@@ -137,7 +98,7 @@ class PublisherService:
             session.add(row)
             session.flush()
             chat_id = row.id
-        self._save_files(chat_id, prepared)
+        save_files(self._uploads_dir, chat_id, prepared)
         return TurnResult(chat_id, turn, self._keep_proposal(chat_id, turn))
 
     def send(self, chat_id: int, message: str, files: list[Upload] | None = None) -> TurnResult:
@@ -146,7 +107,7 @@ class PublisherService:
                 row = self._chat_row(session, chat_id)
                 session_id = row.claude_session_id
             already = len(uploads.list_files(self._uploads_dir, chat_id))
-            prepared = self._prepare(message, files or [], already)
+            prepared = prepare_files(message, files or [], already)
             prompt = message_with_files(message, [(n, t) for n, t, _ in prepared])
             with get_session(self._engine) as session:
                 withdraw_open_proposal(session, chat_id)
@@ -154,7 +115,7 @@ class PublisherService:
             if note and prompt:
                 prompt = f"{note}\n\n{prompt}"
             turn = self._chat.send(prompt, session_id)
-            self._save_files(chat_id, prepared)
+            save_files(self._uploads_dir, chat_id, prepared)
             return TurnResult(chat_id, turn, self._keep_proposal(chat_id, turn))
 
     def file_path(self, chat_id: int, stored_name: str) -> Path:
@@ -215,16 +176,7 @@ class PublisherService:
         with get_session(self._engine) as session:
             row = self._chat_row(session, chat_id)
             proposal = open_proposal(session, chat_id)
-            records = list(
-                session.scalars(
-                    select(PublishRecord)
-                    .where(
-                        PublishRecord.chat_session_id == chat_id,
-                        PublishRecord.confirmed_at.is_not(None),
-                    )
-                    .order_by(PublishRecord.id)
-                )
-            )
+            records = confirmed_records(session, chat_id)
             session_id, created_at = row.claude_session_id, row.created_at
         return ChatView(
             chat_id,
@@ -255,26 +207,6 @@ class PublisherService:
             raise NotFound(f"Chat {display_id(chat_id)} was not found in this project.")
         return row
 
-    def _prepare(
-        self, message: str, files: list[Upload], already: int
-    ) -> list[tuple[str, str, bytes]]:
-        """(stored name, text, original bytes) of each attached file, read before the agent
-        runs, so a bad file is refused without spending a turn."""
-        if len(files) > MAX_FILES:
-            raise PublisherError(f"At most {MAX_FILES} files can be attached to one message.")
-        try:
-            texts = [extract_text(f.name, f.data) for f in files]
-        except FileRejected as exc:
-            raise PublisherError(str(exc)) from None
-        if len(message) + sum(len(t) for t in texts) > MAX_MESSAGE_CHARS:
-            raise PublisherError("The attached documents are too long together; send fewer.")
-        names = uploads.stored_names([f.name for f in files], already)
-        return [(n, t, f.data) for n, t, f in zip(names, texts, files, strict=True)]
-
-    def _save_files(self, chat_id: int, prepared: list[tuple[str, str, bytes]]) -> None:
-        for stored_name, _text, data in prepared:
-            uploads.save(self._uploads_dir, chat_id, stored_name, data)
-
     def _keep_proposal(self, chat_id: int, turn: Turn) -> int | None:
         if turn.plan is None:
             return None
@@ -286,14 +218,7 @@ class PublisherService:
 
     def _untold_note(self, session: Session, chat_id: int, session_id: str) -> str | None:
         """What the last Confirm created, unless the agent was already told (in its transcript)."""
-        record = session.scalars(
-            select(PublishRecord)
-            .where(
-                PublishRecord.chat_session_id == chat_id,
-                PublishRecord.confirmed_at.is_not(None),
-            )
-            .order_by(PublishRecord.id.desc())
-        ).first()
+        record = last_confirmed(session, chat_id)
         if record is None or not record.created_keys:
             return None
         keys = record.created_keys.split(",")
@@ -302,7 +227,7 @@ class PublisherService:
             text = path.read_text(encoding="utf-8", errors="replace")
             if NOTE_START in text and f" {keys[0]} under " in text:
                 return None
-        return created_note(PublishResult(created=_created_from(record, keys)))
+        return created_note(PublishResult(created=created_from(record, keys)))
 
     def _bubbles(self, session_id: str) -> list[Bubble] | None:
         try:
@@ -320,49 +245,3 @@ class PublisherService:
             yield
         finally:
             lock.release()
-
-
-def open_proposal(session: Session, chat_id: int) -> PublishRecord | None:
-    return session.scalars(
-        select(PublishRecord)
-        .where(PublishRecord.chat_session_id == chat_id, PublishRecord.confirmed_at.is_(None))
-        .order_by(PublishRecord.id.desc())
-    ).first()
-
-
-def withdraw_open_proposal(session: Session, chat_id: int) -> None:
-    session.execute(
-        delete(PublishRecord).where(
-            PublishRecord.chat_session_id == chat_id, PublishRecord.confirmed_at.is_(None)
-        )
-    )
-
-
-def confirmed_keys(session: Session, chat_id: int) -> list[str]:
-    values = session.scalars(
-        select(PublishRecord.created_keys)
-        .where(PublishRecord.chat_session_id == chat_id, PublishRecord.created_keys.is_not(None))
-        .order_by(PublishRecord.id)
-    )
-    return [key for value in values for key in (value or "").split(",") if key]
-
-
-def _created_from(record: PublishRecord, keys: list[str]) -> list[Created]:
-    """The created items again, from the stored plan and keys (same order as creation)."""
-    items: list[Created] = []
-    plan = record.proposed_items
-    if not isinstance(plan, dict):
-        return items
-    stories = plan.get("stories") or []
-    remaining = iter(keys)
-    for story in stories:
-        story_key = next(remaining, None)
-        if story_key is None:
-            break
-        items.append(Created("story", story_key, story["summary"], story["epic"]))
-        for subtask in story.get("subtasks") or []:
-            key = next(remaining, None)
-            if key is None:
-                return items
-            items.append(Created("sub-task", key, subtask["summary"], story_key))
-    return items

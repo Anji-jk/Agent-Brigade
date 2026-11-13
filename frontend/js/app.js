@@ -20,6 +20,15 @@ function recall(key) {
   }
 }
 
+function setNav(collapsed) {
+  document.querySelector(".app").classList.toggle("nav-collapsed", collapsed);
+  const button = document.getElementById("nav-fold");
+  button.setAttribute("aria-expanded", String(!collapsed));
+  const label = collapsed ? "Expand the menu" : "Collapse the menu";
+  button.setAttribute("aria-label", label);
+  button.title = label;
+}
+
 function showTab() {
   const wanted = location.hash.slice(1);
   const current = TABS.includes(wanted) ? wanted : TABS[0];
@@ -73,12 +82,19 @@ async function start() {
     /* the project notice reports an unreachable backend */
   }
   Brigade.publisher.init({ initials: health.user_initials, jiraSite: health.jira_site_url });
+  Brigade.planning.init();
 }
 
 document.getElementById("project-select").addEventListener("change", (event) => {
   remember("brigade.project", event.target.value);
 });
 window.addEventListener("hashchange", showTab);
+setNav(recall("brigade.nav") === "collapsed");
+document.getElementById("nav-fold").addEventListener("click", () => {
+  const collapsed = !document.querySelector(".app").classList.contains("nav-collapsed");
+  setNav(collapsed);
+  remember("brigade.nav", collapsed ? "collapsed" : "open");
+});
 
 showTab();
 loadProjects();

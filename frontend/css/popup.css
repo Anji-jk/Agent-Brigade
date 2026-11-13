@@ -1,0 +1,119 @@
+/* Dialog (js/components/popup.js): the same cards, gold and rounded corners as the pages */
+.popup {
+    width: min(460px, 92vw);
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: 0 18px 48px rgba(12, 47, 91, 0.22);
+}
+
+.popup::backdrop {
+    background: rgba(12, 47, 91, 0.3);
+}
+
+.popup-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 18px 20px 6px;
+}
+
+.popup-head h2 {
+    flex: 1;
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--navy);
+}
+
+.popup-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--sand);
+    color: var(--gold);
+}
+
+.popup-x {
+    color: var(--muted);
+}
+
+.popup-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 6px 20px 8px 72px;
+}
+
+.popup-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 14px 20px 18px;
+    background: linear-gradient(to top, #fef4df 0, transparent 100%);
+    border-radius: 0 0 18px 18px;
+}
+
+.pl-money-label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-weight: 600;
+}
+
+.pl-money {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.pl-money:focus-within {
+    border-color: var(--gold-light);
+    box-shadow: 0 0 0 3px rgba(221, 153, 7, 0.18);
+}
+
+.pl-money-sign {
+    padding: 0 4px 0 14px;
+    color: var(--gold);
+    font-weight: 700;
+}
+
+.pl-money input {
+    flex: 1;
+    min-width: 0;
+    padding: 10px 14px 10px 4px;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    font: inherit;
+    font-size: 16px;
+}
+
+.small {
+    font-size: 13px;
+}
+
+.pl-textarea {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    font: inherit;
+    font-weight: 400;
+    resize: vertical;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.pl-textarea:focus {
+    outline: 0;
+    border-color: var(--gold-light);
+    box-shadow: 0 0 0 3px rgba(221, 153, 7, 0.18);
+}

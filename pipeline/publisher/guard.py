@@ -7,11 +7,11 @@ that passes can be confirmed, and Confirm creates exactly that plan.
 
 import json
 import re
-from dataclasses import asdict, dataclass
 
 from core.trackers.errors import TrackerError
 from core.trackers.jira.client import JiraClient, quote_jql
 from pipeline.publisher.cli import KEY_PATTERN, SEARCH_FIELDS
+from pipeline.publisher.plan_model import Plan, PlanCheck, PlannedStory, PlannedSubtask
 
 # The only Bash commands the agent may run (Claude Code permission rules; "*" = any argument).
 ALLOWED_COMMANDS = (
@@ -29,50 +29,6 @@ MAX_SUBTASKS_PER_STORY = 20
 MAX_EXISTING_STORIES = 500  # Stories read per Epic for the duplicate check
 CRITERIA_LINE = "acceptance criteria:"
 PLAN_BLOCK = re.compile(r"```plan[ \t]*\r?\n(.*?)\r?\n[ \t]*```", re.DOTALL)
-
-
-@dataclass(frozen=True)
-class PlannedSubtask:
-    summary: str
-    description: str
-    labels: tuple[str, ...] = ()
-    priority: str | None = None
-
-
-@dataclass(frozen=True)
-class PlannedStory:
-    ref: str
-    epic: str
-    summary: str
-    description: str
-    labels: tuple[str, ...] = ()
-    priority: str | None = None
-    subtasks: tuple[PlannedSubtask, ...] = ()
-
-
-@dataclass(frozen=True)
-class Plan:
-    stories: tuple[PlannedStory, ...]
-
-    def as_dict(self) -> dict:
-        return asdict(self)
-
-    def counts(self) -> dict[str, int]:
-        return {
-            "stories": len(self.stories),
-            "subtasks": sum(len(s.subtasks) for s in self.stories),
-        }
-
-
-@dataclass(frozen=True)
-class PlanCheck:
-    plan: Plan | None
-    problems: tuple[str, ...]
-    fixable: bool = True  # False when Jira could not be asked: the agent cannot fix that
-
-    @property
-    def ok(self) -> bool:
-        return self.plan is not None and not self.problems
 
 
 def find_plan_block(reply: str) -> str | None:

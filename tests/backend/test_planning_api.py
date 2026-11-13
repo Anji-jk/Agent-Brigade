@@ -105,6 +105,13 @@ def test_check_runs_the_fast_checks_without_the_tests(world):
     assert out["text"].startswith("Checks before planning SMT-56")
 
 
+def test_check_runs_the_tests_when_asked(world):
+    client, *_ = world
+    out = client.post("/api/stories/SMT-56/checks", json={"run_tests": True}).json()
+    assert out["ready"]
+    assert out["checks"][-1]["group"] == "Tests" and out["checks"][-1]["status"] == "ok"
+
+
 def test_plan_saves_the_run_with_its_budget_plan_branch_and_cost(world):
     client, repo, jira, claude = world
     started = plan(client, budget=12)
