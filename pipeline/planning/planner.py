@@ -86,6 +86,7 @@ def plan_record(story: Story, checked: dict, config: dict, metrics: dict) -> dic
         "issue": {"key": item.key, "title": item.summary, "url": item.url},
         "config": config,
         "summary": checked["summary"],
+        "commands": checked["commands"],
         "tasks": checked["tasks"],
         "skipped_subtasks": [{"key": s.key, "status": s.status} for s in story.subtasks if s.done],
         "orchestrator_notes": checked["notes"],
@@ -99,7 +100,6 @@ def plan_story(
     settings: Settings,
     runner: AgentRunner,
     *,
-    run_tests: bool = True,
     run_id: str | None = None,
     budget: float | None = None,
     previous: dict[str, Any] | None = None,
@@ -116,7 +116,7 @@ def plan_story(
         jira_tasks(story)
     except PlanValidationError as exc:
         raise PlanningError(str(exc)) from None
-    checks = run_checks(story, settings, run_tests=run_tests)
+    checks = run_checks(story, settings)
     if not checks.ready:
         raise NotReady(checks)
     try:

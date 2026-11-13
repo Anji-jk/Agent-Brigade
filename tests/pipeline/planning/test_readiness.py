@@ -9,8 +9,6 @@ from tests.doubles.jira import FakeJira
 from tests.pipeline.workspace.repo import git, make_repo
 
 CRITERIA = "- it works"
-PASS = 'python -c "print(1)"'
-FAIL = "python -c \"import sys; print('2 failed'); sys.exit(1)\""
 CLAUDE = "## Project structure\n## Commands\n## Rules\n"
 
 
@@ -133,7 +131,6 @@ def settings(
     *,
     project_path: Path | None = None,
     docs_dir: str = "docs",
-    test_command: str = "",
     jira_project_key: str = "",
     jira_site_url: str = "",
     jira_email: str = "",
@@ -145,7 +142,6 @@ def settings(
         test_timeout=60,
         project_path=project_path,
         docs_dir=docs_dir,
-        test_command=test_command,
         jira_project_key=jira_project_key,
         jira_site_url=jira_site_url,
         jira_email=jira_email,
@@ -165,60 +161,29 @@ def ready_project(tmp_path):
 
 def test_everything_ready(tmp_path):
     repo = ready_project(tmp_path)
-    config = settings(tmp_path, project_path=repo, docs_dir="docs", test_command=PASS)
+    config = settings(tmp_path, project_path=repo, docs_dir="docs")
     result = r.run_checks(story(item("SMT-11")), config)
     assert result.ready and not result.warnings
-    assert result.checks[-1].status == r.OK
     text = r.format_checks(result)
     assert text.startswith("Checks before planning SMT-10")
     assert text.endswith("Ready to plan.")
 
 
-def test_failing_tests_fail_with_their_last_line(tmp_path):
-    repo = ready_project(tmp_path)
-    config = settings(tmp_path, project_path=repo, docs_dir="", test_command=FAIL)
-    result = r.run_checks(story(item("SMT-11")), config)
-    tests = result.checks[-1]
-    assert tests.status == r.FAILED
-    assert "exit code 1: 2 failed" in tests.detail and "BRIGADE_TEST_COMMAND" in tests.detail
-    assert r.format_checks(result).endswith(
-        "1 check failed; nothing was planned. Fix the lines marked FAIL and check again.\n"
-        "1 warning (--): they stop nothing; filling them in helps the agents."
-    )
-
-
-def test_no_tests_found_is_a_warning(tmp_path):
-    repo = ready_project(tmp_path)
-    config = settings(tmp_path, project_path=repo, docs_dir="docs")
-    result = r.run_checks(story(item("SMT-11")), config)
-    assert result.ready
-    assert (result.checks[-1].status, result.checks[-1].what) == (
-        r.WARNING,
-        "The project has tests",
-    )
-
-
-def test_tests_are_skipped_when_the_checkout_fails_or_asked(tmp_path):
+def test_a_dirty_checkout_fails_the_run_of_checks(tmp_path):
     repo = ready_project(tmp_path)
     (repo / "dirty.txt").write_text("x", encoding="utf-8")
-    config = settings(tmp_path, project_path=repo, test_command=PASS)
-    tests = r.run_checks(story(item("SMT-11")), config).checks[-1]
-    assert (tests.status, tests.detail) == (r.SKIPPED, "the checkout is not ready")
-    tests = r.run_checks(story(item("SMT-11")), config, run_tests=False).checks[-1]
-    assert (tests.status, tests.detail) == (r.SKIPPED, "left out (--skip-tests)")
+    config = settings(tmp_path, project_path=repo, docs_dir="docs")
+    result = r.run_checks(story(item("SMT-11")), config)
+    assert not result.ready
+    assert r.format_checks(result).endswith(
+        "1 check failed; nothing was planned. Fix the lines marked FAIL and check again."
+    )
 
 
 def test_no_project_folder(tmp_path):
     result = r.run_checks(story(item("SMT-11")), settings(tmp_path))
     assert ("failed", "A project folder is set") in statuses(result.checks, "Checkout")
-    assert result.checks[-1].status == r.SKIPPED
-
-
-def test_timeout_names_the_setting(tmp_path):
-    repo = ready_project(tmp_path)
-    slow = 'python -c "import time; time.sleep(5)"'
-    check = r.check_tests(repo, slow, timeout=1)
-    assert check.status == r.FAILED and "did not finish in 1s" in check.detail
+    assert not result.ready
 
 
 # ---------- the command line ----------
@@ -232,7 +197,7 @@ def test_main_reads_the_story_and_exits_by_result(tmp_path, monkeypatch, capsys)
         .add("SMT-11", "sub-task", "Formatter", "SMT-10", "Acceptance criteria:\n- works")
         .add("SMT-12", "sub-task", "Command", "SMT-10", "No criteria")
     )
-    config = settings(tmp_path, project_path=repo, jira_project_key="SMT", test_command=PASS)
+    config = settings(tmp_path, project_path=repo, jira_project_key="SMT")
     monkeypatch.setattr(r, "get_settings", lambda: config)
     monkeypatch.setattr(r.JiraClient, "from_settings", classmethod(lambda c, s: jira.client()))
     assert r.main(["SMT-10"]) == 2

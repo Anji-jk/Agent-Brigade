@@ -84,6 +84,7 @@ Table attempts {
   id integer [pk, increment]
   sub_task_id integer [not null]
   number integer [not null]
+  branch varchar [note: 'agent-attempt/<run_id>/<KEY>-<n>']
   working_copy varchar [note: 'Git worktree path']
   outcome varchar
   reason varchar
@@ -106,6 +107,10 @@ Table agent_runs {
   cost decimal
   duration_s integer
   exit_reason varchar
+  session_id varchar [note: 'Claude session id']
+  status varchar [note: 'running | done | error']
+  started_at timestamp
+  ended_at timestamp
   Note: 'One Claude Code session'
 }
 

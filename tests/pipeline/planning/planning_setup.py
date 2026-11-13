@@ -6,7 +6,7 @@ from pipeline.planning.planner import plan_story
 from tests.doubles.claude import FakeClaude
 from tests.doubles.jira import FakeJira
 from tests.pipeline.planning.story_samples import ANSWER, story
-from tests.pipeline.planning.test_readiness import PASS, ready_project, settings
+from tests.pipeline.planning.test_readiness import ready_project, settings
 
 GOOD = json.dumps(ANSWER)
 
@@ -14,7 +14,7 @@ GOOD = json.dumps(ANSWER)
 def project(tmp_path):
     """(repo, settings): a clean checkout on main with CLAUDE.md, docs/ and passing tests."""
     repo = ready_project(tmp_path)
-    return repo, settings(tmp_path, project_path=repo, docs_dir="docs", test_command=PASS)
+    return repo, settings(tmp_path, project_path=repo, docs_dir="docs")
 
 
 def planner(tmp_path, *answers):

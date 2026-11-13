@@ -20,7 +20,6 @@ ENV_NAMES = [
     "BRIGADE_BASE_BRANCH",
     "BRIGADE_PROJECT_NAME",
     "BRIGADE_DOCS_DIR",
-    "BRIGADE_TEST_COMMAND",
     "BRIGADE_MAX_RETRIES",
     "BRIGADE_MAX_PARALLEL",
     "BRIGADE_TEST_TIMEOUT",
@@ -162,14 +161,10 @@ def test_user_initials(tmp_path, email, initials):
     assert load(tmp_path, f"JIRA_EMAIL={email}\n").user_initials == initials
 
 
-def test_docs_dir_and_test_command(tmp_path):
-    s = load(
-        tmp_path,
-        "BRIGADE_DOCS_DIR=\\docs\\features\\\nBRIGADE_TEST_COMMAND=python -m pytest -q backend\n",
-    )
+def test_docs_dir(tmp_path):
+    s = load(tmp_path, "BRIGADE_DOCS_DIR=\\docs\\features\\\n")
     assert s.docs_dir == "docs/features"
-    assert s.test_command == "python -m pytest -q backend"
-    assert (load(tmp_path).docs_dir, load(tmp_path).test_command) == ("docs", "")
+    assert load(tmp_path).docs_dir == "docs"
 
 
 @pytest.mark.parametrize("folder", ["../x", "docs/../..", "C:/docs", "~/docs"])

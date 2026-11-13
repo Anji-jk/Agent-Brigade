@@ -102,6 +102,7 @@ class Attempt(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     sub_task_id: Mapped[int] = mapped_column(ForeignKey("sub_tasks.id"), index=True)
     number: Mapped[int]
+    branch: Mapped[str | None]  # agent-attempt/<run_id>/<KEY>-<n>
     working_copy: Mapped[str | None]  # git worktree path
     outcome: Mapped[str | None]
     reason: Mapped[str | None]
@@ -125,6 +126,10 @@ class AgentRun(Base):
     cost: Mapped[float | None] = mapped_column(Money)
     duration_s: Mapped[int | None]
     exit_reason: Mapped[str | None]
+    session_id: Mapped[str | None]  # Claude's session id
+    status: Mapped[str | None]  # running | done | error
+    started_at: Mapped[datetime | None]
+    ended_at: Mapped[datetime | None]
 
 
 class Check(Base):

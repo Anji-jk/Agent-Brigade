@@ -32,6 +32,19 @@ Read in this order, and only as much as you need:
 
 Give direction, not code: name the files and what changes in each. Do not write the code.
 
+## The project's commands
+
+Brigade does not know how any project is set up, tested or built: only the project's CLAUDE.md, and the docs it points to, know. Give two lists for the whole plan, under `commands`:
+
+- **setup**: what a fresh copy of the project needs before anything can run. Each task is built in a new Git worktree, which holds only the files Git tracks, so anything installed or generated (packages, for example) is missing. List the project's own command for it, if it has one.
+- **project_checks**: the project's own commands that prove the project as a whole is healthy: its tests, lint, type check and build, in the order they should run.
+
+Rules for both lists:
+- Copy each command exactly as the project's CLAUDE.md, or a document it points to by path, writes it. Never invent, translate or improve a command. Brigade refuses any command that is not written there.
+- If CLAUDE.md points to another document for how to run things, read that document.
+- If the project does not say, leave the list empty. An empty list is a good answer; a guessed command is not.
+- One command per entry, on one line, with any `cd folder &&` it needs.
+
 ## What to give for each open sub-task
 
 - **key**: the sub-task's Jira key. Give exactly one entry for every open sub-task, and no other keys. Done sub-tasks are listed for context only.
@@ -44,7 +57,7 @@ Give direction, not code: name the files and what changes in each. Do not write 
   - large: a cross-cutting change, a new module, or anything that needs design decisions.
 - **parallel_safe**: true only if `files` lists every file the sub-task touches and no sub-task it is not ordered against touches any of them. When unsure, false.
 - **expected_outcome**: what is true when the sub-task is done, in one or two sentences.
-- **verification**: the commands or tests that show its acceptance criteria are met. Use the test command from the project's CLAUDE.md.
+- **verification**: the commands or tests that show its acceptance criteria are met. Build them from the commands in the project's CLAUDE.md, adding the file or folder of the task's own tests where that helps.
 - **doc_target**: the file in the docs folder this sub-task's feature belongs in, or null. Always null when there is no docs folder.
 - **context.read_first**: the docs and files the builder should read before starting.
 - **context.notes**: what the builder must know, such as an existing helper to reuse or a convention to follow. Keep it short.
@@ -69,6 +82,10 @@ Reply with ONLY one JSON object: no prose before or after, no code fences.
 
 {
   "summary": "one or two sentences on the approach",
+  "commands": {
+    "setup": ["a command exactly as the project's CLAUDE.md writes it"],
+    "project_checks": ["another one, in the order they should run"]
+  },
   "tasks": [
     {
       "key": "SMT-57",

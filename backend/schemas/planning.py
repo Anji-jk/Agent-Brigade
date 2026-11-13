@@ -18,10 +18,6 @@ class ReplanIn(BaseModel):
     budget: float | None = Dollars  # empty: the budget of the run it comes from
 
 
-class ChecksIn(BaseModel):
-    run_tests: bool = False  # the project's own tests take a while: only when asked
-
-
 class SyncOut(BaseModel):
     space: str
     epics: int
@@ -86,7 +82,7 @@ class TreeOut(BaseModel):
 
 
 class CheckOut(BaseModel):
-    group: str  # Story | Checkout | Project | Tests
+    group: str  # Story | Checkout | Project
     status: str  # ok | failed | warning | skipped
     what: str
     detail: str

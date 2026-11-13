@@ -4,6 +4,7 @@ from typing import Any
 
 from pipeline.planning.approval import SUPERSEDED
 from pipeline.planning.profiles import profile_for
+from pipeline.planning.project_commands import describe
 from pipeline.planning.story_plan import APPROVED
 
 
@@ -82,6 +83,18 @@ def _header(record: dict[str, Any]) -> list[str]:
     ]
     if record.get("summary"):
         lines.append(f"Summary:     {record['summary']}")
+    return lines + _command_lines(record)
+
+
+def _command_lines(record: dict[str, Any]) -> list[str]:
+    """The project's setup and check commands the plan carries (written as CLAUDE.md has them)."""
+    listed = describe(record.get("commands") or {})
+    if not listed:
+        return ["Commands:    none listed"]
+    lines = []
+    for label, commands in listed:
+        lines.append(f"{label + ':':<13}{commands[0]}")
+        lines += [f"{'':<13}{command}" for command in commands[1:]]
     return lines
 
 

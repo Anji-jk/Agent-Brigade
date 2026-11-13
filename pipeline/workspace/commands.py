@@ -1,24 +1,26 @@
-"""Run a project's own command, such as its tests. Ported from Agent Lab (checks.py).
+"""Run one of a project's own commands, such as its tests. Ported from Agent Lab (checks.py).
 
-The test command comes from BRIGADE_TEST_COMMAND. A leading `python` is replaced by the
-project's own .venv Python when it has one, so the tests run with the project's packages, not
-Brigade's.
+Brigade never knows a project's commands itself: they are the lines of its approved plan, which
+come from the project's CLAUDE.md and which the person approved. Each line runs through the
+system shell (cmd.exe on Windows, sh elsewhere), so ``cd frontend && npm ci`` works as written
+and the shell finds ``npm`` the way it does for the person. If the program is missing the shell
+says so, and that message is what is shown.
 """
 
-import shlex
+import os
+import signal
 import subprocess
-import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_TEST_COMMAND = ("python", "-m", "pytest", "-q")
 OUTPUT_TAIL_CHARS = 4000
+_DRAIN_SECONDS = 5
 
 
 @dataclass(frozen=True)
 class CommandResult:
-    command: tuple[str, ...]
+    command: str  # the line, as approved
     exit_code: int | None  # None: it timed out or could not start
     timed_out: bool
     output_tail: str
@@ -29,61 +31,53 @@ class CommandResult:
         return self.exit_code == 0
 
 
-def venv_python(root: Path) -> Path | None:
-    """The project's .venv Python, on Windows or Linux, or None."""
-    for candidate in (root / ".venv" / "Scripts" / "python.exe", root / ".venv" / "bin" / "python"):
-        if candidate.is_file():
-            return candidate
-    return None
-
-
-def project_python(root: Path) -> str:
-    """The Python that runs the project's tests: its .venv, else the one running Brigade."""
-    found = venv_python(root)
-    return str(found) if found else sys.executable
-
-
-def split_command(text: str) -> tuple[str, ...]:
-    """A command line as words. Quotes group words, and Windows backslashes are kept."""
-    words = shlex.split(text, posix=False)
-    return tuple(
-        word[1:-1] if len(word) > 1 and word[0] == word[-1] == '"' else word for word in words
-    )
-
-
-def project_test_command(root: Path, configured: str = "") -> tuple[str, ...]:
-    """The command that runs the project's tests, with `python` made the project's Python."""
-    command = split_command(configured) if configured.strip() else DEFAULT_TEST_COMMAND
-    if command and command[0].lower() in ("python", "python3", "py"):
-        command = (project_python(root), *command[1:])
-    return command
-
-
-def run_command(command: tuple[str, ...], cwd: Path, *, timeout: int) -> CommandResult:
-    """Run a command to the end, keeping only the end of its output."""
+def run_command(line: str, cwd: Path, *, timeout: int) -> CommandResult:
+    """Run a line to the end, keeping only the end of its output (errors included, in order)."""
     started = time.monotonic()
+    own_group = {} if os.name == "nt" else {"start_new_session": True}
     try:
-        completed = subprocess.run(
-            list(command),
+        process = subprocess.Popen(  # noqa: S602 - the line is the person's approved command
+            line,
+            shell=True,
             cwd=str(cwd),
             stdin=subprocess.DEVNULL,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=timeout,
-            check=False,
+            **own_group,
         )
-    except subprocess.TimeoutExpired as exc:
-        partial = exc.stdout.decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else ""
-        return CommandResult(command, None, True, partial[-OUTPUT_TAIL_CHARS:], _since(started))
     except OSError as exc:
-        reason = f"Could not start {command[0]}: {type(exc).__name__}"
-        return CommandResult(command, None, False, reason, _since(started))
-    output = (completed.stdout or "") + (completed.stderr or "")
+        return CommandResult(line, None, False, f"Could not start: {exc}", _since(started))
+    try:
+        output, _ = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_tree(process)
+        return CommandResult(line, None, True, _rest(process)[-OUTPUT_TAIL_CHARS:], _since(started))
     return CommandResult(
-        command, completed.returncode, False, output[-OUTPUT_TAIL_CHARS:], _since(started)
+        line, process.returncode, False, output[-OUTPUT_TAIL_CHARS:], _since(started)
     )
+
+
+def _kill_tree(process: subprocess.Popen[str]) -> None:
+    """Stop the shell and everything it started, so nothing keeps running after a timeout."""
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(process.pid)], capture_output=True, check=False
+        )
+        return
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def _rest(process: subprocess.Popen[str]) -> str:
+    try:
+        return process.communicate(timeout=_DRAIN_SECONDS)[0] or ""
+    except subprocess.TimeoutExpired:
+        return ""
 
 
 def _since(started: float) -> float:

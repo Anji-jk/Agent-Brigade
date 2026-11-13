@@ -96,15 +96,15 @@ class PlanningService:
                 last_synced(session, project_id),
             )
 
-    def checks(self, key: str, run_tests: bool = False) -> StoryCheck:
-        """The checks before planning. The tests run only when asked: Plan runs them anyway."""
+    def checks(self, key: str) -> StoryCheck:
+        """The checks before planning (they read Jira and Git and start nothing)."""
         key = check_story_key(key, self._settings.jira_project_key or None)
         client = self._client_factory(self._settings)
         try:
             story = read_story(client, key, self._settings.jira_project_key or None)
         finally:
             client.close()
-        return run_checks(story, self._settings, run_tests=run_tests)
+        return run_checks(story, self._settings)
 
     def checks_context(self) -> tuple[str, str]:
         """The project folder (empty if none is set) and the base branch the checks look at."""

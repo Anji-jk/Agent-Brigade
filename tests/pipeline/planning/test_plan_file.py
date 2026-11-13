@@ -96,6 +96,24 @@ def test_a_saved_plan_is_read_back_checked(tmp_path):
     assert record["source"]["key"] == "SMT-56"
 
 
+def test_commands_default_to_empty_and_are_normalised(tmp_path):
+    pf.save_plan(tmp_path, "run-1", document())
+    assert pf.load_plan(tmp_path, "run-1")["commands"] == {"setup": [], "project_checks": []}
+    pf.save_plan(tmp_path, "run-2", {**document(), "commands": {"setup": [" npm ci "]}})
+    found = pf.load_plan(tmp_path, "run-2")["commands"]
+    assert found == {"setup": ["npm ci"], "project_checks": []}
+
+
+def test_a_stored_plan_with_bad_commands_is_refused(tmp_path):
+    pf.save_plan(tmp_path, "run-1", document())
+    path = tmp_path / ".agent-brigade" / "runs" / "run-1" / "plan.json"
+    record = json.loads(path.read_text(encoding="utf-8"))
+    record["commands"] = {"setup": "npm ci"}
+    path.write_text(json.dumps(record), encoding="utf-8")
+    with pytest.raises(PlanFileError, match="commands.setup must be a list"):
+        pf.load_plan(tmp_path, "run-1")
+
+
 def test_the_first_save_hides_the_folder_from_git(tmp_path):
     pf.save_plan(tmp_path, "run-1", document())
     assert (tmp_path / ".agent-brigade" / ".gitignore").read_text() == "*\n"

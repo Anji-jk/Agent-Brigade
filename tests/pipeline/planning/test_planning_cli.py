@@ -39,7 +39,7 @@ def test_plan_shows_the_checks_when_not_ready(tmp_path, monkeypatch, capsys, jir
     repo, settings = project(tmp_path)
     (repo / "dirty.txt").write_text("x", encoding="utf-8")
     use(monkeypatch, settings)
-    assert cli.main(["plan", "SMT-56", "--skip-tests"], planner(tmp_path)) == 2
+    assert cli.main(["plan", "SMT-56"], planner(tmp_path)) == 2
     assert "Checks before planning SMT-56" in capsys.readouterr().out
 
 

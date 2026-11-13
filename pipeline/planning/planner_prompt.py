@@ -71,7 +71,14 @@ def _previous_plan(record: dict[str, Any]) -> str:
         }
         for task in record["tasks"]
     ]
-    text = json.dumps({"summary": record.get("summary", ""), "tasks": tasks}, indent=1)
+    text = json.dumps(
+        {
+            "summary": record.get("summary", ""),
+            "commands": record.get("commands") or {"setup": [], "project_checks": []},
+            "tasks": tasks,
+        },
+        indent=1,
+    )
     return text if len(text) <= MAX_PREVIOUS_CHARS else text[:MAX_PREVIOUS_CHARS] + "\n... (cut)"
 
 

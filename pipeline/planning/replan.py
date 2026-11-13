@@ -23,7 +23,6 @@ def replan_story(
     previous_run_id: str,
     changes: str,
     *,
-    run_tests: bool = True,
     budget: float | None = None,
     run_id: str | None = None,
 ) -> PlanResult:
@@ -58,7 +57,6 @@ def replan_story(
         story,
         settings,
         runner,
-        run_tests=run_tests,
         run_id=run_id,
         budget=budget if budget is not None else previous["config"].get("budget_usd"),
         previous=previous,

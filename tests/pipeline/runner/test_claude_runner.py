@@ -238,3 +238,82 @@ def test_a_limit_stop_without_a_known_limit_still_reports_the_reason():
     run = FakeRun(stdout=answer(is_error=True, subtype="error_max_turns", result=""))
     with pytest.raises(AgentError, match="publisher agent stopped: error_max_turns"):
         ClaudeCliRunner("claude", run).run(request())
+
+
+# ---------- model, effort, an agent file outside cwd, and usage (step 4.2) ----------
+
+
+def test_model_effort_and_an_agents_file_reach_the_command():
+    asked = request()
+    asked = AgentRequest(**{**asked.__dict__, "model": "sonnet", "effort": "low"})
+    command = runner_module.claude_command("claude", asked, Path("s.json"), Path("a.json"))
+    assert command[command.index("--agents") + 1] == "a.json"
+    assert command[command.index("--model") + 1] == "sonnet"
+    assert command[command.index("--effort") + 1] == "low"
+    plain = runner_module.claude_command("claude", request(), Path("s.json"))
+    assert not {"--agents", "--model", "--effort"} & set(plain)
+
+
+def test_an_agent_file_is_written_for_the_run_and_a_bad_one_is_an_agent_error(tmp_path):
+    good = tmp_path / "builder.md"
+    good.write_text("---\ndescription: B\n---\nDo it.\n", encoding="utf-8")
+    seen = {}
+
+    def run(command, **kwargs):
+        seen["agents"] = json.loads(Path(command[command.index("--agents") + 1]).read_text())
+        return subprocess.CompletedProcess(command, 0, b'{"result": "ok"}', b"")
+
+    asked = AgentRequest(**{**request().__dict__, "agent": "builder", "agent_file": good})
+    ClaudeCliRunner("claude", run).run(asked)
+    assert seen["agents"] == {"builder": {"description": "B", "prompt": "Do it."}}
+    bad = AgentRequest(**{**asked.__dict__, "agent_file": tmp_path / "missing.md"})
+    with pytest.raises(AgentError, match="could not be read"):
+        ClaudeCliRunner("claude", run).run(bad)
+
+
+def test_usage_and_model_are_read_from_the_result():
+    stdout = json.dumps(
+        {
+            "result": "done",
+            "session_id": "s1",
+            "total_cost_usd": 0.5,
+            "num_turns": 3,
+            "duration_ms": 4000,
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 20,
+                "cache_read_input_tokens": 30,
+                "cache_creation_input_tokens": 5,
+            },
+            "modelUsage": {"claude-sonnet-5": {}},
+        }
+    )
+    reply = runner_module.parse_reply(stdout, "", 0, request())
+    assert (reply.input_tokens, reply.output_tokens, reply.cache_tokens) == (10, 20, 35)
+    assert reply.model_used == "claude-sonnet-5"
+    bare = runner_module.parse_reply('{"result": "x"}', "", 0, request())
+    assert (bare.input_tokens, bare.cache_tokens, bare.model_used) == (None, None, None)
+
+
+def test_settings_allow_each_line_under_each_shell_and_deny_the_rest():
+    from pipeline.runner.claude_runner import claude_settings
+
+    permissions = claude_settings(
+        ("npm run build",), ("Read(//c/x/.env)",), ("Bash", "PowerShell")
+    )["permissions"]
+    assert permissions["allow"] == ["Bash(npm run build)", "PowerShell(npm run build)"]
+    assert permissions["deny"] == ["Read(//c/x/.env)"]
+    assert permissions["defaultMode"] == "dontAsk"
+
+
+def test_an_editing_agent_runs_in_accept_edits_mode_and_prompts_are_denied():
+    from dataclasses import replace
+
+    from pipeline.runner.claude_runner import claude_command
+
+    plain = claude_command("claude", request(), Path("s.json"))
+    assert plain[plain.index("--permission-mode") + 1] == "dontAsk"
+    assert "--permission-prompts" not in plain  # the Publisher is unchanged
+    edits = claude_command("claude", replace(request(), permission_mode="acceptEdits"), Path("s"))
+    assert edits[edits.index("--permission-mode") + 1] == "acceptEdits"
+    assert edits[edits.index("--permission-prompts") + 1] == "none"

@@ -24,6 +24,12 @@ __pycache__/
 *.db-shm
 events.jsonl
  
+.claude/skills/
+
+graphify-out/.graphify_labels.json
+graphify-out/.graphify_python
+graphify-out/cache/
+graphify-out/.graphify_root
 # Distribution / packaging
 .Python
 build/

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 OK, FAILED, WARNING, SKIPPED = "ok", "failed", "warning", "skipped"
 LABELS = {OK: "ok", FAILED: "FAIL", WARNING: "--", SKIPPED: "skip"}
-GROUPS = ("Story", "Checkout", "Project", "Tests")
+GROUPS = ("Story", "Checkout", "Project")
 
 
 @dataclass(frozen=True)

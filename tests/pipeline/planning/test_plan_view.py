@@ -88,3 +88,12 @@ def test_a_replan_and_a_replaced_plan_are_shown(tmp_path):
     text = format_plan(replanned, "p")
     assert "Re-plan of:  run-1\nChanges:     Docs first, then the endpoint.\n" in text
     assert "Status:      replaced by run-2" in text
+
+
+def test_commands_are_shown_or_the_view_says_none_listed(tmp_path):
+    result, _, _ = planned(tmp_path)
+    assert "Commands:    none listed" in format_plan(result.record, "plan.json")
+    record = {**result.record, "commands": {"setup": ["npm ci"], "project_checks": ["npm test"]}}
+    text = format_plan(record, "plan.json")
+    assert "Setup:       npm ci" in text and "Checks:      npm test" in text
+    assert "none listed" not in text

@@ -56,6 +56,53 @@ def test_a_refused_answer_is_sent_back_once_in_the_same_session(tmp_path):
     assert result.record["planner"]["total_cost_usd"] == pytest.approx(0.02)
 
 
+def commands_project(tmp_path):
+    """A clean checkout whose CLAUDE.md writes down its setup and test commands."""
+    repo, config = project(tmp_path)
+    text = "## Commands\nSetup: `npm ci`\nTests: `npm test`\n"
+    (repo / "CLAUDE.md").write_text(text, encoding="utf-8")
+    git(repo, "commit", "-q", "-am", "commands")
+    return repo, config
+
+
+def test_commands_written_in_claude_md_are_saved_with_the_plan(tmp_path):
+    repo, config = commands_project(tmp_path)
+    mine = {"setup": ["npm ci"], "project_checks": ["npm test"]}
+    fake = planner(tmp_path, json.dumps({**ANSWER, "commands": mine}))
+    result = p.plan_story(story(), config, fake)
+    assert load_plan(repo, result.run_id)["commands"] == mine
+
+
+def test_a_plan_without_commands_saves_two_empty_lists(tmp_path):
+    result, _, repo = planned(tmp_path)
+    assert load_plan(repo, result.run_id)["commands"] == {"setup": [], "project_checks": []}
+
+
+def test_an_invented_command_is_sent_back_once_then_fixed(tmp_path):
+    repo, config = commands_project(tmp_path)
+    invented = {"setup": ["pip install -r requirements.txt"], "project_checks": []}
+    fixed = {"setup": ["npm ci"], "project_checks": []}
+    fake = planner(
+        tmp_path,
+        json.dumps({**ANSWER, "commands": invented}),
+        json.dumps({**ANSWER, "commands": fixed}),
+    )
+    result = p.plan_story(story(), config, fake)
+    first, second = fake.requests
+    assert second.resume and second.session_id == first.session_id
+    assert "pip install -r requirements.txt" in second.prompt
+    assert "is not written in CLAUDE.md" in second.prompt
+    assert load_plan(repo, result.run_id)["commands"] == fixed
+
+
+def test_an_invented_command_refused_twice_saves_nothing(tmp_path):
+    repo, config = commands_project(tmp_path)
+    bad = json.dumps({**ANSWER, "commands": {"setup": ["make secret"]}})
+    with pytest.raises(p.PlanningError, match="refused twice"):
+        p.plan_story(story(), config, planner(tmp_path, bad, bad))
+    assert not (repo / ".agent-brigade").exists()
+
+
 @pytest.mark.parametrize("bad", ["not json at all", json.dumps({"tasks": []})])
 def test_an_answer_refused_twice_saves_nothing(tmp_path, bad):
     with pytest.raises(p.PlanningError, match="refused twice"):
@@ -100,7 +147,7 @@ def test_a_run_id_is_used_once(tmp_path):
     repo, settings = project(tmp_path)
     p.plan_story(story(), settings, planner(tmp_path, GOOD), run_id="run-1")
     with pytest.raises(p.PlanningError, match="already exists for run run-1"):
-        p.plan_story(story(), settings, planner(tmp_path, GOOD), run_id="run-1", run_tests=False)
+        p.plan_story(story(), settings, planner(tmp_path, GOOD), run_id="run-1")
 
 
 def test_a_docs_folder_counts_only_when_the_project_has_it(tmp_path):

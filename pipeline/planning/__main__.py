@@ -1,8 +1,8 @@
 """Planning from the command line, for the project and Jira space in .env:
 
-python -m pipeline.planning plan SMT-56 [--budget 12] [--skip-tests]
+python -m pipeline.planning plan SMT-56 [--budget 12]
     check, plan and save a story; --budget is dollars for planning and building it together
-python -m pipeline.planning replan <run_id> --changes "your idea" [--budget 12] [--skip-tests]
+python -m pipeline.planning replan <run_id> --changes "your idea" [--budget 12]
     a new plan from an earlier one; the earlier one is kept and marked replaced
 python -m pipeline.planning approve <run_id>
     write the plan's new dependencies to Jira as "is blocked by" links
@@ -68,11 +68,7 @@ def plan(args: argparse.Namespace, settings: Settings, runner: AgentRunner) -> i
         print(f"Could not read {args.story}: {exc}", file=sys.stderr)
         return 1
     print(f"Planning {args.story}. The Planner reads the project; this takes a few minutes.")
-    return finish(
-        lambda: plan_story(
-            story, settings, runner, run_tests=not args.skip_tests, budget=args.budget
-        )
-    )
+    return finish(lambda: plan_story(story, settings, runner, budget=args.budget))
 
 
 def replan(args: argparse.Namespace, settings: Settings, runner: AgentRunner) -> int:
@@ -90,7 +86,6 @@ def replan(args: argparse.Namespace, settings: Settings, runner: AgentRunner) ->
             runner,
             args.run_id,
             args.changes,
-            run_tests=not args.skip_tests,
             budget=args.budget,
         )
     )
@@ -134,7 +129,6 @@ def parser() -> argparse.ArgumentParser:
     commands = top.add_subparsers(dest="command", required=True)
 
     def planning_options(command: argparse.ArgumentParser) -> None:
-        command.add_argument("--skip-tests", action="store_true", help="skip the test run first")
         command.add_argument(
             "--budget", type=float, help="dollars for planning and building the story"
         )

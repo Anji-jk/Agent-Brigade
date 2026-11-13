@@ -12,7 +12,7 @@ from pipeline.planning.plan_file import load_plan
 from tests.doubles.jira import SITE
 from tests.pipeline.planning.planning_setup import GOOD, jira_board, planner
 from tests.pipeline.planning.story_samples import answer
-from tests.pipeline.planning.test_readiness import PASS, ready_project, settings
+from tests.pipeline.planning.test_readiness import ready_project, settings
 
 RUN_ID = re.compile(r"SMT-56-\d{8}-[0-9a-f]{4}")
 OTHER = json.dumps(answer(SMT_59={"complexity": "medium"}))
@@ -46,7 +46,6 @@ def make_world(tmp_path, *answers, executor=None):
         tmp_path,
         project_path=repo,
         docs_dir="docs",
-        test_command=PASS,
         jira_site_url=SITE,
         jira_email="a@b.c",
         jira_api_token="t",
@@ -97,19 +96,12 @@ def test_the_sync_answer_counts_the_board(tmp_path):
     assert out["summary"].startswith("Synced SMT: 1 epics, 1 stories, 4 sub-tasks")
 
 
-def test_check_runs_the_fast_checks_without_the_tests(world):
+def test_check_runs_the_story_and_project_checks(world):
     client, *_ = world
     out = client.post("/api/stories/SMT-56/checks").json()
     assert out["ready"] and out["story_key"] == "SMT-56"
-    assert out["checks"][-1]["group"] == "Tests" and out["checks"][-1]["status"] == "skipped"
+    assert out["checks"][-1]["group"] == "Project" and out["checks"][-1]["status"] == "ok"
     assert out["text"].startswith("Checks before planning SMT-56")
-
-
-def test_check_runs_the_tests_when_asked(world):
-    client, *_ = world
-    out = client.post("/api/stories/SMT-56/checks", json={"run_tests": True}).json()
-    assert out["ready"]
-    assert out["checks"][-1]["group"] == "Tests" and out["checks"][-1]["status"] == "ok"
 
 
 def test_plan_saves_the_run_with_its_budget_plan_branch_and_cost(world):

@@ -14,6 +14,7 @@ from core.files.atomic import write_json_atomic
 from core.runs import project_folder, run_directory, utc_now
 from pipeline.planning.plan_fields import MAX_TASKS, PlanValidationError, check_task
 from pipeline.planning.plan_order import check_order
+from pipeline.planning.project_commands import check_command_lists
 
 SCHEMA_VERSION = 2
 PLAN_FILE_NAME = "plan.json"
@@ -84,6 +85,7 @@ def save_plan(project_root: Path, run_id: str, document: dict[str, Any]) -> Path
         "created_at": utc_now(),
     }
     record["tasks"] = validate_tasks(record.get("tasks"))  # check what is about to be written
+    record["commands"] = check_command_lists(record.get("commands"))
     project_folder(project_root)  # .agent-brigade/ with its .gitignore
     write_json_atomic(path, record)
     return path
@@ -107,6 +109,7 @@ def load_plan(project_root: Path, run_id: str) -> dict[str, Any]:
         )
     try:
         record["tasks"] = validate_tasks(record.get("tasks"))
+        record["commands"] = check_command_lists(record.get("commands"))  # older plans: none
     except PlanValidationError as exc:
         raise PlanFileError(f"Stored plan is invalid: {exc}") from None
     return record

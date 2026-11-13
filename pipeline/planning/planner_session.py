@@ -16,6 +16,7 @@ from pipeline.planning.plan_fields import PlanValidationError
 from pipeline.planning.plan_file import parse_planner_answer
 from pipeline.planning.planner_limits import planner_limits
 from pipeline.planning.planner_prompt import fix_prompt
+from pipeline.planning.project_commands import check_commands
 from pipeline.planning.story_plan import merge_planner_output
 from pipeline.runner.claude_runner import (
     AgentError,
@@ -74,6 +75,29 @@ def _metrics(replies: list[AgentReply], session_id: str, money: float) -> dict[s
     }
 
 
+def checked_answer(
+    story: Story, answer: dict[str, Any], root: Path, docs_dir: str
+) -> dict[str, Any]:
+    """The answer joined to Jira's fields, with the project's commands checked.
+
+    The tasks and the commands are both checked before anything is refused, so the Planner is
+    told every problem in one message and one fix round is enough.
+    """
+    problems: list[str] = []
+    checked: dict[str, Any] = {}
+    try:
+        checked = merge_planner_output(story, answer, docs_dir)
+    except PlanValidationError as exc:
+        problems.append(str(exc))
+    try:
+        commands = check_commands(answer.get("commands"), root)
+    except PlanValidationError as exc:
+        problems.append(str(exc))
+    if problems:
+        raise PlanValidationError(" ".join(problems))
+    return {**checked, "commands": commands}
+
+
 def ask_planner(
     story: Story, runner: AgentRunner, root: Path, first_prompt: str, docs_dir: str, money: float
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -104,7 +128,7 @@ def ask_planner(
             )
         try:
             answer = parse_planner_answer(replies[-1].text)
-            return merge_planner_output(story, answer, docs_dir), _metrics(
+            return checked_answer(story, answer, root, docs_dir), _metrics(
                 replies, session_id, money
             )
         except PlanValidationError as exc:

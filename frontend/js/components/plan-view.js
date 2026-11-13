@@ -40,7 +40,20 @@ Brigade.planView = (function () {
       box.append(row("Re-plan of", config.replan.from_run), row("Changes asked", config.replan.changes));
     }
     if (plan.summary) box.append(row("Summary", plan.summary));
+    box.append(...commandRows(plan));
     return box;
+  }
+
+  /* The project's own commands the Planner copied from its CLAUDE.md; a person approves them. */
+  function commandRows(plan) {
+    const commands = plan.commands || {};
+    const rows = [
+      ["Setup", commands.setup || []],
+      ["Checks", commands.project_checks || []],
+    ]
+      .filter(([, lines]) => lines.length)
+      .map(([label, lines]) => row(label, lines));
+    return rows.length ? rows : [row("Commands", "none listed")];
   }
 
   function notes(plan) {
