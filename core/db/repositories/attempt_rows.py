@@ -6,10 +6,10 @@ attempts row, and each Claude Code session of that try is an agent_runs row with
 
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from core.db.models import AgentRun, Attempt, SubTask, TrackerItem
+from core.db.models import AgentRun, Attempt, Check, SubTask, TrackerItem
 
 QUEUED, RUNNING, DONE, ERROR = "queued", "running", "done", "error"
 
@@ -105,4 +105,30 @@ def agent_runs_of(session: Session, attempt_id: int) -> list[AgentRun]:
         session.scalars(
             select(AgentRun).where(AgentRun.attempt_id == attempt_id).order_by(AgentRun.id)
         )
+    )
+
+
+def attempt_of(session: Session, sub_task: SubTask, number: int) -> Attempt | None:
+    """The newest attempts row of this number: an attempt that failed to start may have left one."""
+    return session.scalar(
+        select(Attempt)
+        .where(Attempt.sub_task_id == sub_task.id, Attempt.number == number)
+        .order_by(Attempt.id.desc())
+    )
+
+
+def record_checks(
+    session: Session, attempt: Attempt, sub_task: SubTask, rows: list[tuple[str, bool, str]]
+) -> None:
+    """Replace the attempt's checks with `rows` (kind, passed, text): a re-check is the newest."""
+    session.execute(delete(Check).where(Check.attempt_id == attempt.id))
+    for kind, passed, text in rows:
+        session.add(Check(attempt_id=attempt.id, kind=kind, passed=passed, output_tail=text))
+    sub_task.current_stage = "checks"
+    session.flush()
+
+
+def checks_of(session: Session, attempt_id: int) -> list[Check]:
+    return list(
+        session.scalars(select(Check).where(Check.attempt_id == attempt_id).order_by(Check.id))
     )

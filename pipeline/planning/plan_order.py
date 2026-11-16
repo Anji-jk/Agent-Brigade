@@ -92,6 +92,27 @@ def _normalized_files(task: dict[str, Any]) -> set[str]:
     }
 
 
+def overlapping_tasks(tasks: list[dict[str, Any]], task_id: str) -> dict[str, list[str]]:
+    """The tasks that may touch the same files as `task_id`, each with the files they share.
+
+    Only tasks that are not ordered against it count (an ancestor or a descendant runs before or
+    after it anyway). A task that names no files may overlap with anything: its list is empty.
+    """
+    ancestors = _ancestors(tasks)
+    files = {task["id"]: _normalized_files(task) for task in tasks}
+    found: dict[str, list[str]] = {}
+    for other in tasks:
+        other_id = other["id"]
+        if other_id == task_id or other_id in ancestors[task_id] or task_id in ancestors[other_id]:
+            continue
+        mine, theirs = files[task_id], files[other_id]
+        if not mine or not theirs:
+            found[other_id] = []
+        elif mine & theirs:
+            found[other_id] = sorted(mine & theirs)
+    return found
+
+
 def _enforce_parallel_safety(tasks: list[dict[str, Any]]) -> None:
     """The planner's parallel_safe is kept only when code can confirm it.
 

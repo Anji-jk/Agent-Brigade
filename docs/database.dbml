@@ -86,8 +86,9 @@ Table attempts {
   number integer [not null]
   branch varchar [note: 'agent-attempt/<run_id>/<KEY>-<n>']
   working_copy varchar [note: 'Git worktree path']
-  outcome varchar
+  outcome varchar [note: 'built | done | failed | needs_review | error']
   reason varchar
+  commit_sha varchar [note: 'the commit Brigade made in the attempt worktree when the outcome is done']
   started_at timestamp
   ended_at timestamp
   Note: 'One try at a sub-task (under review: may be folded into agent_runs)'

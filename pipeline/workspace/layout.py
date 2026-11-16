@@ -15,6 +15,9 @@ from pathlib import Path
 
 from core.runs import STORY_KEY_PATTERN, validate_run_id
 
+# Every branch the orchestrator makes starts with one of these (story and attempt branches).
+OWN_BRANCH_PREFIXES = ("agent/", "agent-attempt/")
+
 
 def _key(key: str) -> str:
     if not isinstance(key, str) or not STORY_KEY_PATTERN.fullmatch(key):

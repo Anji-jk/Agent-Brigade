@@ -106,6 +106,7 @@ class Attempt(Base):
     working_copy: Mapped[str | None]  # git worktree path
     outcome: Mapped[str | None]
     reason: Mapped[str | None]
+    commit_sha: Mapped[str | None]  # the commit made when the attempt was judged done
     started_at: Mapped[datetime | None]
     ended_at: Mapped[datetime | None]
 

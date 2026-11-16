@@ -24,17 +24,17 @@ from core.db.repositories.projects import sync_env_project
 from core.settings import Settings
 from pipeline.planning.profiles import profile_for, role_settings
 from pipeline.runner.claude_runner import AgentError, AgentReply, AgentRunner
+from pipeline.stages.attempt_log import AttemptLog, agent_events_path
 from pipeline.stages.builder_prompt import builder_prompt
 from pipeline.stages.builder_report import BuildResult
 from pipeline.stages.builder_session import builder_request
+from pipeline.stages.errors import BuildError
 from pipeline.stages.prepare import approved_plan, prepare_attempt, project_root
+from pipeline.stages.retry import previous_feedback
+from pipeline.stages.schedule import start_blockers
 from pipeline.workspace.git import changed_files, repository_state
 
 Row = TypeVar("Row")
-
-
-class BuildError(RuntimeError):
-    """The attempt was refused before anything ran. The message says why."""
 
 
 def _row(session: Session, model: type[Row], row_id: int) -> Row:
@@ -107,11 +107,15 @@ def _ask_builder(
     worktree: Path,
     root: Path,
     session_id: str,
+    feedback: str = "",
+    events_file: Path | None = None,
 ) -> tuple[AgentReply | None, str | None]:
     """Run the Builder. (reply, error); an error also when the project's own folder changed."""
     before = repository_state(root)
-    prompt = builder_prompt(task)
-    request = builder_request(task, plan["commands"], prompt, worktree, root, session_id)
+    prompt = builder_prompt(task, feedback)
+    request = builder_request(
+        task, plan["commands"], prompt, worktree, root, session_id, events_file
+    )
     reply, error = None, None
     try:
         reply = runner.run(request)
@@ -139,7 +143,12 @@ def build_attempt(
     task = _task(plan, key)
     engine = init_db(engine)
     sub_task_id = _sub_task_id(engine, settings, plan, task, run_id)
+    blockers = start_blockers(root, plan, run_id, key, engine)
+    if blockers:
+        raise BuildError(f"{key} cannot start yet:\n" + "\n".join(f"- {text}" for text in blockers))
     ready = prepare_attempt(settings, run_id, key, number)
+    log = AttemptLog(root, run_id, key, number)
+    log.emit("worktree_ready", branch=ready.branch, setup_ok=ready.ok)
     result = BuildResult(
         run_id, key, number, ready.branch, ready.worktree, _limits(task), setup=ready.setup
     )
@@ -162,14 +171,24 @@ def build_attempt(
                 session_id, _now(),
             )  # fmt: skip
             run_row_id = row.id
+        log.emit("builder_started", model=result.limits["model"], session_id=session_id)
         reply, result.error = _ask_builder(
-            runner, plan, task, Path(ready.worktree), root, session_id
-        )
+            runner, plan, task, Path(ready.worktree), root, session_id,
+            previous_feedback(root, run_id, key, number),
+            agent_events_path(root, run_id, key, number, "builder"),
+        )  # fmt: skip
     else:
         result.error = "setup failed in the attempt worktree, so no Builder was started."
     result.changed = changed_files(Path(ready.worktree))
     if reply is not None:
         result.usage, result.report = _usage(reply), reply.text
+    log.emit(
+        "builder_finished",
+        ok=result.error is None,
+        changed=len(result.changed),
+        error=result.error,
+        **{k: result.usage.get(k) for k in ("cost_usd", "turns", "seconds")},
+    )
     with get_session(engine) as session:
         if run_row_id is not None:
             attempt_rows.finish_agent_run(

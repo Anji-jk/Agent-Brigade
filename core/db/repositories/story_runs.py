@@ -91,3 +91,14 @@ def fail_unfinished(session: Session, reason: str, now: datetime) -> int:
         row.status, row.error, row.ended_at = FAILED, reason, now
     session.flush()
     return len(rows)
+
+
+def story_keys_with_status(session: Session, project_id: int, status: str) -> list[str]:
+    """The stories that have a run in this status, by story key."""
+    query = (
+        select(StoryRun.story_key)
+        .where(StoryRun.project_id == project_id, StoryRun.status == status)
+        .distinct()
+        .order_by(StoryRun.story_key)
+    )
+    return list(session.scalars(query))

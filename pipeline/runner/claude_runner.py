@@ -18,15 +18,20 @@ How an agent is restricted, when started by ClaudeCliRunner:
 """
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePath
-from typing import Any, Protocol
+from typing import Any, NoReturn, Protocol
 
+from core.runs import utc_now
 from pipeline.runner.agent_file import AgentFileError, agent_definitions
+from pipeline.runner.stop_watch import DONE, STOPPED, wait_for
+from pipeline.workspace.commands import kill_tree
 
 DEFAULT_TIMEOUT_SECONDS = 600.0
 MAX_ERROR_CHARS = 500
@@ -34,6 +39,10 @@ MAX_ERROR_CHARS = 500
 
 class AgentError(Exception):
     """The agent could not be run, or stopped without a usable answer."""
+
+
+class AgentStopped(AgentError):
+    """A person asked for the task to stop (or cancel), so the agent was not run, or was killed."""
 
 
 @dataclass(frozen=True)
@@ -54,6 +63,8 @@ class AgentRequest:
     model: str | None = None  # a model alias; None: the agent file's own model
     effort: str | None = None  # low | medium | high | xhigh | max; None: the agent's own
     agent_file: Path | None = None  # an agent definition outside cwd, such as Brigade's builder.md
+    events_file: Path | None = None  # keep Claude's event stream here, one line at a time, live
+    stop_file: Path | None = None  # if this file exists the agent is not started, or is killed
 
 
 @dataclass(frozen=True)
@@ -124,7 +135,8 @@ def claude_command(
         "--agent",
         request.agent,
         "--output-format",
-        "json",
+        "stream-json" if request.events_file else "json",
+        *(["--verbose"] if request.events_file else []),  # Claude Code requires it with a stream
         "--tools",
         ",".join(request.tools),
         "--permission-mode",
@@ -210,11 +222,81 @@ class ClaudeCliRunner:
         self,
         executable: str | None = None,
         run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+        popen: Callable[..., Any] = subprocess.Popen,
+        kill: Callable[[Any], None] = kill_tree,
     ) -> None:
         self._executable = executable
         self._run = run
+        self._popen = popen
+        self._kill = kill
+
+    def _give_up(self, process: Any, readers: list, how: str, request: AgentRequest) -> NoReturn:
+        """Kill the agent that was stopped or ran too long, and say which."""
+        self._kill(process)
+        for reader in readers:
+            reader.join(timeout=5)
+        if how == STOPPED:
+            raise AgentStopped(f"The {request.agent} agent was stopped on request.")
+        raise AgentError(
+            f"The {request.agent} agent did not finish within {request.timeout:.0f} seconds."
+        )
+
+    def _stream(self, command: list[str], request: AgentRequest) -> tuple[str, str, int]:
+        """Run it keeping every event line and its time. (the result event, stderr, exit code)."""
+        events = request.events_file
+        assert events is not None
+        events.parent.mkdir(parents=True, exist_ok=True)
+        own_group = {} if os.name == "nt" else {"start_new_session": True}
+        try:
+            process = self._popen(
+                command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                cwd=request.cwd, **own_group,
+            )  # fmt: skip
+        except OSError as exc:
+            raise AgentError(f"Claude Code could not be started: {exc}") from exc
+        result_line, stderr = [""], []
+
+        def read_events() -> None:
+            # One UTC time per line, in the same file order: Claude's events carry no time.
+            with (
+                events.open("a", encoding="utf-8") as out,
+                events.with_suffix(".times").open("a", encoding="utf-8") as times,
+            ):
+                for raw in process.stdout:
+                    line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+                    out.write(line + "\n")
+                    out.flush()
+                    times.write(utc_now() + "\n")
+                    times.flush()
+                    if '"type"' in line and '"result"' in line:
+                        try:
+                            kind = json.loads(line).get("type")
+                        except (ValueError, AttributeError):
+                            continue
+                        if kind == "result":
+                            result_line[0] = line
+
+        readers = [
+            threading.Thread(target=read_events, daemon=True),
+            threading.Thread(target=lambda: stderr.append(process.stderr.read()), daemon=True),
+        ]
+        for reader in readers:
+            reader.start()
+        try:
+            process.stdin.write(request.prompt.encode("utf-8"))
+            process.stdin.close()
+        except OSError:
+            pass  # it already stopped; its exit code and stderr say why
+        code, how = wait_for(process, request.timeout, request.stop_file)
+        if how != DONE or code is None:
+            self._give_up(process, readers, how, request)
+        for reader in readers:
+            reader.join(timeout=5)
+        return result_line[0], _text(stderr[0] if stderr else b""), code
 
     def run(self, request: AgentRequest) -> AgentReply:
+        if request.stop_file is not None and request.stop_file.exists():
+            raise AgentStopped(f"The {request.agent} agent was not started: a stop was requested.")
         executable = self._executable or shutil.which("claude")
         if not executable:
             raise AgentError(
@@ -237,11 +319,15 @@ class ClaudeCliRunner:
                 except AgentFileError as exc:
                     raise AgentError(str(exc)) from None
                 agents_file.write_text(json.dumps(definitions), "utf-8")
+            command = claude_command(executable, request, settings_file, agents_file)
+            if request.events_file is not None:
+                line, error, code = self._stream(command, request)
+                return parse_reply(line, error, code, request)
             try:
                 # Bytes, not text mode: text mode on Windows turns every \n of the prompt into
                 # \r\n, which Claude Code then stores in the transcript.
                 done = self._run(
-                    claude_command(executable, request, settings_file, agents_file),
+                    command,
                     input=request.prompt.encode("utf-8"),
                     capture_output=True,
                     cwd=request.cwd,

@@ -12,13 +12,18 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
-from backend.api import health, planning, projects, publisher
+from backend.api import health, orchestrator, planning, projects, publisher, run_control
 from backend.services.planning import Executor, PlanningService
+from backend.services.progress import ProgressService
 from backend.services.projects import sync_env_project
 from backend.services.publisher import PublisherService
+from backend.services.run_control import Launcher, RunControlService
+from backend.services.task_control import TaskControlService
 from core.db import get_session, init_db, make_engine
 from core.settings import Settings, get_settings
 from core.trackers.jira.client import JiraClient
+from pipeline.control.launch import launch_loop
+from pipeline.control.processes import CommandLine, command_line
 from pipeline.publisher.transcript import CLAUDE_HOME
 from pipeline.runner.claude_runner import AgentRunner, ClaudeCliRunner
 
@@ -49,9 +54,12 @@ def create_app(
     jira_factory: Callable[[Settings], JiraClient] = JiraClient.from_settings,
     claude_home: Path = CLAUDE_HOME,
     planning_executor: Executor | None = None,
+    loop_launcher: Launcher = launch_loop,
+    command_line: CommandLine = command_line,
 ) -> FastAPI:
     """The app. Tests pass a fake runner, a fake Jira, a temporary Claude folder and an executor
-    that plans at once instead of in a worker thread."""
+    that plans at once instead of in a worker thread, a launcher that starts no process, and a way
+    to look at processes that does not look at the real ones."""
     settings = settings or load_settings()
 
     @asynccontextmanager
@@ -66,6 +74,9 @@ def create_app(
         app.state.planning = PlanningService(
             settings, engine, agents, jira_factory, planning_executor
         )
+        app.state.progress = ProgressService(settings, engine, command_line)
+        app.state.run_control = RunControlService(settings, engine, loop_launcher, command_line)
+        app.state.task_control = TaskControlService(settings, engine, command_line)
         app.state.planning.recover()  # runs left planning by the last stop are marked failed
         yield
         app.state.planning.close()
@@ -77,6 +88,8 @@ def create_app(
     app.include_router(projects.router, prefix="/api")
     app.include_router(publisher.router, prefix="/api")
     app.include_router(planning.router, prefix="/api")
+    app.include_router(orchestrator.router, prefix="/api")
+    app.include_router(run_control.router, prefix="/api")
     # Last, so /api/* wins: the page and its files
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
     return app

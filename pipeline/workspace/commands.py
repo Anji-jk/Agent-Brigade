@@ -53,14 +53,14 @@ def run_command(line: str, cwd: Path, *, timeout: int) -> CommandResult:
     try:
         output, _ = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
-        _kill_tree(process)
+        kill_tree(process)
         return CommandResult(line, None, True, _rest(process)[-OUTPUT_TAIL_CHARS:], _since(started))
     return CommandResult(
         line, process.returncode, False, output[-OUTPUT_TAIL_CHARS:], _since(started)
     )
 
 
-def _kill_tree(process: subprocess.Popen[str]) -> None:
+def kill_tree(process: subprocess.Popen[str]) -> None:
     """Stop the shell and everything it started, so nothing keeps running after a timeout."""
     if os.name == "nt":
         subprocess.run(

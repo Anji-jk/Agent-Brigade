@@ -59,6 +59,7 @@ def builder_request(
     worktree: Path,
     project_root: Path,
     session_id: str,
+    events_file: Path | None = None,
 ) -> AgentRequest:
     limits = role_settings(profile_for(task["complexity"]), "builder")
     return AgentRequest(
@@ -77,4 +78,5 @@ def builder_request(
         model=limits.model,
         effort=limits.effort,
         agent_file=AGENT_FILE,
+        events_file=events_file,
     )

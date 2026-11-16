@@ -73,3 +73,37 @@ def test_tracked_files_are_listed_and_cut_with_a_note(tmp_path):
     cut = g.tracked_files(repo, 14)
     assert cut.splitlines()[:2] == ["README.md", "a.py"]
     assert "2 more files not listed" in cut
+
+
+def test_changed_paths_lists_new_files_one_by_one_and_renames_both_names(tmp_path):
+    repo = make_repo(tmp_path / "proj")
+    (repo / "new dir").mkdir()
+    (repo / "new dir" / "a b.txt").write_text("x", encoding="utf-8")
+    (repo / "__pycache__").mkdir()
+    (repo / "__pycache__" / "m.pyc").write_text("x", encoding="utf-8")
+    git(repo, "mv", "README.md", "MOVED.md")
+    assert g.changed_paths(repo) == ["MOVED.md", "README.md", "new dir/a b.txt"]
+    assert g.changed_files(repo) != g.changed_paths(repo)  # the plain list names the folder
+
+
+def test_the_orchestrators_own_branches_and_worktrees_are_not_a_change(tmp_path):
+    """Parallel tasks: while one agent runs, the loop sets up and merges the others."""
+    repo = make_repo(tmp_path / "r")
+    before = g.repository_state(repo)
+    attempt = tmp_path / "wt-attempt"
+    git(repo, "worktree", "add", "-q", "-b", "agent-attempt/R/SMT-62-1", str(attempt))
+    story = tmp_path / "wt-story"
+    git(repo, "worktree", "add", "-q", "-b", "agent/R", str(story))
+    (attempt / "a.txt").write_text("x", encoding="utf-8")
+    git(attempt, "add", ".")
+    git(attempt, "commit", "-q", "-m", "work")
+    assert g.repository_state(repo) == before
+
+
+def test_a_branch_or_worktree_the_orchestrator_did_not_make_is_still_a_change(tmp_path):
+    repo = make_repo(tmp_path / "r")
+    before = g.repository_state(repo)
+    git(repo, "worktree", "add", "-q", "-b", "stray", str(tmp_path / "wt-stray"))
+    after = g.repository_state(repo)
+    assert after["branches"] != before["branches"]
+    assert after["worktrees"] != before["worktrees"]

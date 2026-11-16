@@ -48,11 +48,14 @@ def test_a_builder_attempt_runs_in_its_worktree_and_is_recorded(tmp_path):
     assert git(repo, "status", "--porcelain") == ""  # the project's own folder is untouched
 
 
-def test_the_dependency_is_recorded_by_jira_key(tmp_path):
+def test_the_dependency_is_recorded_by_jira_key_and_must_be_merged_first(tmp_path):
     _, config, engine = build_project(tmp_path)
-    b.build_attempt(config, RUN, "SMT-63", FakeRunner(), engine=engine)
-    (sub_task,) = rows(engine)[0]
+    runner = FakeRunner()
+    with pytest.raises(b.BuildError, match="SMT-62 is not merged into the story branch"):
+        b.build_attempt(config, RUN, "SMT-63", runner, engine=engine)
+    (sub_task,) = rows(engine)[0]  # the row is made, no worktree and no Builder
     assert sub_task.key == "SMT-63" and sub_task.depends_on == "SMT-62"
+    assert runner.requests == [] and rows(engine)[1] == []
 
 
 def test_the_report_file_and_text_say_what_happened(tmp_path):

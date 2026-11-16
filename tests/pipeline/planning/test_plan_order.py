@@ -1,7 +1,7 @@
 import pytest
 
 from pipeline.planning.plan_fields import PlanValidationError
-from pipeline.planning.plan_order import check_order
+from pipeline.planning.plan_order import check_order, overlapping_tasks
 
 
 def task(task_id="T1", **overrides):
@@ -78,3 +78,16 @@ def test_a_task_without_files_is_never_safe():
 
 def test_a_task_not_claimed_safe_stays_unsafe():
     assert safe_flags(task("T1", files=["a.py"]), task("T2", files=["b.py"])) == [False, False]
+
+
+def test_overlapping_tasks_are_those_unordered_tasks_that_may_share_files():
+    tasks = [
+        task("T1", files=["a.py", "b.py"]),
+        task("T2", files=["B.py", "c.py"]),  # shares b.py with T1 (case does not matter)
+        task("T3", files=["d.py"]),
+        task("T4", files=["a.py"], depends_on=["T1"]),  # ordered after T1: never overlaps it
+        task("T5", files=[]),  # names no files: may overlap anything it is not ordered against
+    ]
+    assert overlapping_tasks(tasks, "T1") == {"T2": ["b.py"], "T5": []}
+    assert overlapping_tasks(tasks, "T3") == {"T5": []}
+    assert overlapping_tasks(tasks, "T4") == {"T5": []}  # T1 shares a.py but comes before it

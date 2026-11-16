@@ -7,6 +7,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from pipeline.workspace.layout import OWN_BRANCH_PREFIXES
+
 GIT_TIMEOUT_SECONDS = 60
 _BASE_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
 
@@ -75,6 +77,36 @@ def changed_files(root: Path) -> list[str]:
     return [line[3:].strip() for line in run_git(root, "status", "--porcelain").splitlines()]
 
 
+def _status_paths(raw: str) -> list[str]:
+    """Paths from `git status --porcelain=v1 -z`; a rename lists the new name, then the old one."""
+    parts = raw.split("\0")
+    paths: list[str] = []
+    index = 0
+    while index < len(parts):
+        entry = parts[index]
+        index += 1
+        if len(entry) < 4:
+            continue
+        paths.append(entry[3:])
+        if ("R" in entry[:2] or "C" in entry[:2]) and index < len(parts):
+            paths.append(parts[index])
+            index += 1
+    return paths
+
+
+def changed_paths(root: Path) -> list[str]:
+    """Every file that differs from HEAD, sorted: new files one by one, never as a folder.
+
+    Unlike `changed_files` this is exact: names are not quoted and a new folder lists its files,
+    so a rule about a path (such as a .env inside a new folder) cannot be missed.
+    """
+    raw = run_git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+    noise = ("__pycache__", ".pytest_cache")
+    return sorted(
+        {path for path in _status_paths(raw) if not any(part in noise for part in path.split("/"))}
+    )
+
+
 def current_branch(root: Path) -> str:
     """The checked-out branch, or "" on a detached HEAD."""
     return run_git(root, "branch", "--show-current")
@@ -84,13 +116,37 @@ def head_commit(root: Path) -> str:
     return run_git(root, "rev-parse", "HEAD")
 
 
+def _is_ours(branch: str) -> bool:
+    return branch.startswith(OWN_BRANCH_PREFIXES)
+
+
+def _foreign_branches(root: Path) -> str:
+    names = run_git(root, "for-each-ref", "--format=%(refname:short)", "refs/heads").splitlines()
+    return "\n".join(name for name in names if not _is_ours(name))
+
+
+def _foreign_worktrees(root: Path) -> str:
+    """`git worktree list`, without the worktrees of the orchestrator's own branches."""
+    kept = []
+    for block in run_git(root, "worktree", "list", "--porcelain").split("\n\n"):
+        branch = next((x for x in block.splitlines() if x.startswith("branch refs/heads/")), "")
+        if not _is_ours(branch.removeprefix("branch refs/heads/")):
+            kept.append(block)
+    return "\n\n".join(kept)
+
+
 def repository_state(root: Path) -> dict[str, str]:
-    """Everything a read-only agent must leave as it was: changes, HEAD, branches, worktrees."""
+    """Everything a read-only agent must leave as it was: changes, HEAD, branches, worktrees.
+
+    The orchestrator's own branches and worktrees are left out: with tasks running in parallel,
+    it sets up, commits and merges the others while one agent runs, and that is not the agent's
+    doing.
+    """
     return {
         "status": run_git(root, "status", "--porcelain"),
         "head": run_git(root, "rev-parse", "HEAD"),
-        "branches": run_git(root, "branch", "--list"),
-        "worktrees": run_git(root, "worktree", "list", "--porcelain"),
+        "branches": _foreign_branches(root),
+        "worktrees": _foreign_worktrees(root),
     }
 
 
