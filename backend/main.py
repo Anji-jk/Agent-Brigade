@@ -18,6 +18,7 @@ from backend.services.progress import ProgressService
 from backend.services.projects import sync_env_project
 from backend.services.publisher import PublisherService
 from backend.services.run_control import Launcher, RunControlService
+from backend.services.task_continue import ContinueService
 from backend.services.task_control import TaskControlService
 from core.db import get_session, init_db, make_engine
 from core.settings import Settings, get_settings
@@ -77,6 +78,7 @@ def create_app(
         app.state.progress = ProgressService(settings, engine, command_line)
         app.state.run_control = RunControlService(settings, engine, loop_launcher, command_line)
         app.state.task_control = TaskControlService(settings, engine, command_line)
+        app.state.task_continue = ContinueService(settings, engine, loop_launcher, command_line)
         app.state.planning.recover()  # runs left planning by the last stop are marked failed
         yield
         app.state.planning.close()

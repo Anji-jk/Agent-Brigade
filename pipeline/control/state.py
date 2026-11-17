@@ -46,8 +46,10 @@ def _ended(report: dict) -> str:
     return PAUSED if "stopped" in statuses else STOPPED
 
 
-def build_state(run_dir: Path, run_id: str, get_command_line: CommandLine = command_line) -> str:
-    if loop_alive(run_dir, run_id, get_command_line):
+def build_state(
+    run_dir: Path, run_id: str, get_command_line: CommandLine = command_line, quick: bool = False
+) -> str:
+    if loop_alive(run_dir, run_id, get_command_line, quick):
         return RUNNING
     report = _report(run_dir)
     if report is not None:

@@ -56,3 +56,11 @@ def attempt_events(
     full: bool = Full,
 ) -> dict[str, Any]:
     return run(lambda: service(request).attempt_events(run_id, key, number, source, after, full))
+
+
+@router.get("/runs/{run_id}/tasks/{key}/attempts/{number}/report/{stage}")
+def stage_report(
+    run_id: str, key: str, number: int, stage: str, request: Request
+) -> dict[str, Any]:
+    """What the agent of a stage (build, test or judge) did: the report the page shows after it."""
+    return run(lambda: service(request).stage_report(run_id, key, number, stage))

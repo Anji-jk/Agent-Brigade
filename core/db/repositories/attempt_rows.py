@@ -132,3 +132,10 @@ def checks_of(session: Session, attempt_id: int) -> list[Check]:
     return list(
         session.scalars(select(Check).where(Check.attempt_id == attempt_id).order_by(Check.id))
     )
+
+
+def reopen_attempt(session: Session, attempt: Attempt, sub_task: SubTask, stage: str) -> None:
+    """Continue: the attempt that was stopped (or interrupted) is working again, in place."""
+    attempt.outcome, attempt.reason, attempt.ended_at = None, None, None
+    sub_task.status, sub_task.current_stage = RUNNING, stage
+    session.flush()

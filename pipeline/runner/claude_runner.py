@@ -30,6 +30,7 @@ from typing import Any, NoReturn, Protocol
 
 from core.runs import utc_now
 from pipeline.runner.agent_file import AgentFileError, agent_definitions
+from pipeline.runner.agent_record import recorded
 from pipeline.runner.stop_watch import DONE, STOPPED, wait_for
 from pipeline.workspace.commands import kill_tree
 
@@ -65,6 +66,7 @@ class AgentRequest:
     agent_file: Path | None = None  # an agent definition outside cwd, such as Brigade's builder.md
     events_file: Path | None = None  # keep Claude's event stream here, one line at a time, live
     stop_file: Path | None = None  # if this file exists the agent is not started, or is killed
+    record_file: Path | None = None  # while the agent runs, its process is noted here
 
 
 @dataclass(frozen=True)
@@ -287,9 +289,10 @@ class ClaudeCliRunner:
             process.stdin.close()
         except OSError:
             pass  # it already stopped; its exit code and stderr say why
-        code, how = wait_for(process, request.timeout, request.stop_file)
-        if how != DONE or code is None:
-            self._give_up(process, readers, how, request)
+        with recorded(request.record_file, process.pid, request.session_id):
+            code, how = wait_for(process, request.timeout, request.stop_file)
+            if how != DONE or code is None:
+                self._give_up(process, readers, how, request)
         for reader in readers:
             reader.join(timeout=5)
         return result_line[0], _text(stderr[0] if stderr else b""), code

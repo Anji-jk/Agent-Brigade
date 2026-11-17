@@ -12,15 +12,23 @@ from core.runs import RunIdError, validate_run_id
 from core.settings import Settings
 from pipeline.workspace.git import GitError, repository_root
 
+_ROOTS: dict[Path, Path] = {}  # folder -> its repository's top folder, once found
+
 
 def project_root(settings: Settings) -> Path:
+    """The project's repository folder. Asking Git costs about a second on some Windows setups
+    and every page read needs it, so a found answer is kept (a repository does not move while
+    the server runs); a failure is never kept, so fixing .env and retrying works."""
     folder = settings.project_path
     if folder is None:
         raise PlanningServiceError("No project: BRIGADE_PROJECT_PATH is empty in .env.")
+    if folder in _ROOTS:
+        return _ROOTS[folder]
     try:
-        return repository_root(folder)
+        _ROOTS[folder] = repository_root(folder)
     except GitError as exc:
         raise PlanningServiceError(str(exc)) from None
+    return _ROOTS[folder]
 
 
 def find_run(session: Session, settings: Settings, run_id: str) -> StoryRun:

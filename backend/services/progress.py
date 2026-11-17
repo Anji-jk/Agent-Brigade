@@ -18,10 +18,12 @@ from core.db.models import StoryRun
 from core.db.repositories.progress_rows import AttemptRows, TaskRows, rows_of_run
 from core.runs import run_directory
 from core.settings import Settings
+from pipeline.control import continue_request
 from pipeline.control import task_control as control
+from pipeline.control.interrupted import notice
 from pipeline.control.processes import CommandLine, command_line
 from pipeline.control.state import build_state
-from pipeline.feed import sources
+from pipeline.feed import reports, sources
 from pipeline.feed.items import feed
 from pipeline.planning.plan_file import PlanFileError, load_plan
 
@@ -54,6 +56,9 @@ class ProgressService:
 
     def progress(self, run_id: str) -> ProgressOut:
         root = self._root()
+        notice(
+            self._engine, root, run_id, self._lines, quick=True
+        )  # a dead loop's tasks become "stopped"
         with get_session(self._engine) as session:
             story = self._story(session, run_id)
             rows = rows_of_run(session, story.id)
@@ -69,7 +74,7 @@ class ProgressService:
             run_id=run_id,
             story_key=story.story_key,
             status=story.status,
-            build_state=build_state(run_directory(root, run_id), run_id, self._lines),
+            build_state=build_state(run_directory(root, run_id), run_id, self._lines, quick=True),
             branch=story.branch,
             budget=story.budget,
             cost=sum(task.cost for task in tasks),
@@ -104,7 +109,9 @@ class ProgressService:
         if asked:
             return "stopping" if asked == control.STOP else "cancelling"
         settled = control.settled(folder, key)
-        return settled.state if settled else None
+        if settled:
+            return settled.state
+        return "continuing" if continue_request.wanted(folder, key) is not None else None
 
     def _attempt(self, root: Path, run_id: str, key: str, rows: AttemptRows) -> AttemptOut:
         attempt, merge = rows.attempt, rows.merge
@@ -142,6 +149,13 @@ class ProgressService:
             **feed(items, after, full=full),
             "sources": sources.available(root, run_id, key, number),
         }
+
+    def stage_report(self, run_id: str, key: str, number: int, stage: str) -> dict[str, Any]:
+        """What the agent of `stage` (build, test, judge) did, from its report."""
+        root = self._root()
+        with get_session(self._engine) as session:
+            self._story(session, run_id)
+        return reports.stage_report(root, run_id, key, number, stage)
 
     # ---------- helpers ----------
 

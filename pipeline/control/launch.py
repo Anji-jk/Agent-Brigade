@@ -21,6 +21,7 @@ from typing import Any
 
 from core.files.atomic import write_json_atomic
 from core.runs import utc_now
+from pipeline.control import heartbeat
 from pipeline.control.processes import CommandLine, command_line
 
 LAUNCH_FILE = "launch.json"
@@ -78,7 +79,16 @@ def _lock_pid(run_dir: Path) -> int | None:
         return None
 
 
-def loop_alive(run_dir: Path, run_id: str, get_command_line: CommandLine = command_line) -> bool:
+def loop_alive(
+    run_dir: Path,
+    run_id: str,
+    get_command_line: CommandLine = command_line,
+    quick: bool = False,
+) -> bool:
+    """Is a loop of this run running? `quick` (for what the page shows) trusts a fresh heartbeat
+    and skips looking at the process; anything that acts on the loop leaves it off."""
+    if quick and heartbeat.fresh(run_dir):
+        return True
     launch = read_launch(run_dir)
     candidates = [launch.pid if launch else None, _lock_pid(run_dir)]
     return any(

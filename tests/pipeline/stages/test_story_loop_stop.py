@@ -22,7 +22,7 @@ class Asked:
         if request.agent == self.role and self.key in str(request.cwd):
             tc.ask(self.folder, self.key, self.action)
             raise AgentStopped("stopped on request")
-        return getattr(super(), "run")(request)
+        return super().run(request)  # pyright: ignore[reportAttributeAccessIssue]  # the runner
 
 
 class AskingStory(Asked, StoryRunner):

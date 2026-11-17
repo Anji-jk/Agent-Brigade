@@ -19,7 +19,7 @@ def test_the_plan_reads_like_the_planning_screen(tmp_path):
         "      Needs:   T2 (SMT-58): It documents the endpoint SMT-58 adds. "
         "[new: added to Jira after approval]"
     ) in text
-    assert "      Run as:  small, one at a time -> sonnet, low effort, 10 turns" in text
+    assert "      Run as:  small, one at a time -> sonnet, low effort, 100 turns" in text
     assert "      Accept:  Commas in names are quoted." in text
     assert "      Doc:     docs/export.md" in text
     assert "      Read:    CLAUDE.md, backend/models.py" in text

@@ -25,7 +25,7 @@ def test_the_request_uses_the_worktree_limits_and_agent_file(tmp_path):
     assert request.cwd == work and request.agent == "builder" and request.resume is False
     assert request.tools == ("Read", "Edit", "Write", "Glob", "Grep", "Bash", "PowerShell")
     assert (request.model, request.effort) == ("sonnet", "medium")
-    assert request.max_turns == 25 and request.max_budget_usd == 1.8  # 60% of $3 / 25 turns
+    assert request.max_turns == 200 and request.max_budget_usd == 1.8  # 60% of $3 / 200 turns
     assert request.agent_file == s.AGENT_FILE and s.AGENT_FILE.is_file()
 
 

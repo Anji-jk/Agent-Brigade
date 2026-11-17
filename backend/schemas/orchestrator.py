@@ -42,7 +42,7 @@ class TaskOut(BaseModel):
     depends_on: list[str]
     status: str  # waiting until the loop reaches it, then the sub_tasks status
     stage: str | None
-    control: str | None  # a person's word: stopping | cancelling | stopped | cancelled
+    control: str | None  # a person's word: stopping | cancelling | stopped | cancelled | continuing
     size: str | None
     cost: float
     attempts: list[AttemptOut]

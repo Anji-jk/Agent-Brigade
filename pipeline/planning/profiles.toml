@@ -11,21 +11,21 @@ min_role_turns = 5
 [profiles.small]
 model = "sonnet"
 effort = "low"        # low | medium | high | xhigh | max
-max_turns = 10
+max_turns = 100
 timeout_seconds = 600
 max_budget_usd = 1.0
 
 [profiles.medium]
 model = "sonnet"
 effort = "medium"
-max_turns = 25
+max_turns = 200
 timeout_seconds = 1200
 max_budget_usd = 3.0
 
 [profiles.large]
-model = "opus"
+model = "sonnet"
 effort = "high"
-max_turns = 50
+max_turns = 300
 timeout_seconds = 2400
 max_budget_usd = 10.0
 

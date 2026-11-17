@@ -40,15 +40,23 @@ class TaskInterrupted(Exception):
 class StopAware:
     """Hands every request of a task the file whose appearance stops its agent."""
 
-    def __init__(self, runner: AgentRunner, stop_file: Path) -> None:
-        self._runner, self._stop_file = runner, stop_file
+    def __init__(
+        self, runner: AgentRunner, stop_file: Path, record_file: Path | None = None
+    ) -> None:
+        self._runner, self._stop_file, self._record_file = runner, stop_file, record_file
 
     def run(self, request: AgentRequest) -> AgentReply:
-        return self._runner.run(replace(request, stop_file=self._stop_file))
+        return self._runner.run(
+            replace(request, stop_file=self._stop_file, record_file=self._record_file)
+        )
 
 
 def stop_file_of(root: Path, run_id: str, key: str) -> Path:
     return control.request_path(run_directory(root, run_id), key)
+
+
+def agent_file_of(root: Path, run_id: str, key: str) -> Path:
+    return control.agent_record_path(run_directory(root, run_id), key)
 
 
 def settle_task(

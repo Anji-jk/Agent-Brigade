@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="css/planning.css" />
     <link rel="stylesheet" href="css/popup.css" />
     <link rel="stylesheet" href="css/plan.css" />
+    <link rel="stylesheet" href="css/orchestrator.css" />
   </head>
   <body>
     <svg width="0" height="0" style="position: absolute" aria-hidden="true">
@@ -154,11 +155,52 @@
 
         <!-- Orchestrator -->
         <section class="panel page" id="orchestrator" hidden>
-          <header class="page-head">
-            <h1>Orchestrator</h1>
-            <p>Overview and Stories.</p>
+          <header class="orch-head">
+            <div class="page-head">
+              <h1>Orchestrator</h1>
+              <p>Execute planned stories with multi-agent collaboration and track progress in real time.</p>
+            </div>
+            <div class="orch-head-right">
+              <span class="orch-pill" id="orch-runpill" hidden></span>
+              <span class="muted small" id="orch-updated"></span>
+              <button type="button" class="icon-btn" id="orch-refresh" aria-label="Refresh" title="Refresh"><svg class="icon"><use href="#i-refresh" /></svg></button>
+            </div>
           </header>
-          <p class="empty">Coming later.</p>
+          <nav class="orch-views" aria-label="Orchestrator views">
+            <button type="button" class="orch-view" disabled title="Will be created later">Overview</button>
+            <button type="button" class="orch-view selected" id="orch-view-stories" aria-pressed="true">Stories</button>
+          </nav>
+          <p class="status" id="orch-notice" hidden></p>
+          <div class="orch-layout">
+            <section class="orch-left">
+              <div class="orch-left-head">
+                <h2 id="orch-count">Stories</h2>
+                <label class="pl-pill"><svg class="icon"><use href="#i-search" /></svg><span class="sr-only">Search stories</span><input id="orch-search" type="search" placeholder="Search stories..." /></label>
+              </div>
+              <div id="orch-stories" class="orch-stories"></div>
+            </section>
+            <div class="orch-main">
+              <p class="empty" id="orch-empty">Pick a story on the left.</p>
+              <div id="orch-run-area" hidden>
+                <select id="orch-runs" class="orch-select" aria-label="Run" hidden></select>
+                <div id="orch-run" class="orch-run"></div>
+                <div id="orch-strip" class="orch-strip"></div>
+                <div id="orch-detail" hidden>
+                  <div id="orch-bar" class="orch-bar"></div>
+                  <div class="orch-agentbar">
+                    <div id="orch-tabs" class="orch-tabs"></div>
+                    <select id="orch-attempt" class="orch-select" aria-label="Attempt" hidden></select>
+                  </div>
+                  <div class="orch-agentline">
+                    <div id="orch-usage" class="orch-usage"></div>
+                    <label class="orch-follow"><input type="checkbox" id="orch-follow" checked /> Follow Live</label>
+                  </div>
+                  <div id="orch-report" class="orch-report"></div>
+                  <div id="orch-feed" class="orch-feed"></div>
+                </div>
+              </div>
+            </div>
+          </div>
         </section>
       </main>
     </div>
@@ -178,9 +220,19 @@
     <script src="js/components/plan-task.js"></script>
     <script src="js/components/plan-view.js"></script>
     <script src="js/components/plan-side.js"></script>
+    <script src="js/components/orch-model.js"></script>
+    <script src="js/components/orch-api.js"></script>
+    <script src="js/components/orch-stories.js"></script>
+    <script src="js/components/orch-strip.js"></script>
+    <script src="js/components/orch-taskbar.js"></script>
+    <script src="js/components/orch-report.js"></script>
+    <script src="js/components/orch-feed.js"></script>
+    <script src="js/components/orch-agent.js"></script>
+    <script src="js/components/orch-run.js"></script>
     <script src="js/tabs/publisher.js"></script>
     <script src="js/tabs/plan-panel.js"></script>
     <script src="js/tabs/planning.js"></script>
+    <script src="js/tabs/orchestrator.js"></script>
     <script src="js/app.js"></script>
   </body>
 </html>

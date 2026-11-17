@@ -9,6 +9,9 @@ a process that is not ours.
 ``<KEY>.json``     what the loop (or, for a task that is not running, the page) settled:
                    state ``stopped`` (it can be continued) or ``cancelled`` (final), the stage
                    it will resume from, and the attempt it was on.
+``<KEY>.agent``    the agent process the loop has running for the task, written when it starts and
+                   removed when it ends (pipeline.runner.agent_record). If it is still there after
+                   the loop died, that agent may be an orphan.
 
 Both are plain files, so a restart of the server or of the loop loses nothing, and ``reset``
 removes them with the rest of the run's folder.
@@ -42,6 +45,15 @@ def _path(run_dir: Path, key: str, suffix: str) -> Path:
 
 def request_path(run_dir: Path, key: str) -> Path:
     return _path(run_dir, key, "request")
+
+
+def agent_record_path(run_dir: Path, key: str) -> Path:
+    return _path(run_dir, key, "agent")
+
+
+def unsettle(run_dir: Path, key: str) -> None:
+    """Take back a Stop (Continue): the task is no longer stopped. Used only by Continue."""
+    _path(run_dir, key, "json").unlink(missing_ok=True)
 
 
 def ask(run_dir: Path, key: str, action: str) -> None:

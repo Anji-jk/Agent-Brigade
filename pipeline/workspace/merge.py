@@ -13,8 +13,11 @@ A conflict aborts by itself and raises MergeConflict with the files in conflict.
 
 from pathlib import Path
 
-from pipeline.workspace.commit import commit_staged
+from pipeline.workspace.commit import AUTHOR_EMAIL, AUTHOR_NAME, commit_staged
 from pipeline.workspace.git import GitError, head_commit, run_git
+
+# git merge needs a committer identity even with --no-commit; a machine (or CI) may have none.
+IDENTITY = ("-c", f"user.name={AUTHOR_NAME}", "-c", f"user.email={AUTHOR_EMAIL}")
 
 
 class MergeConflict(GitError):
@@ -55,7 +58,7 @@ def abort_merge(worktree: Path) -> None:
 def begin_merge(worktree: Path, commit: str) -> None:
     """Merge `commit` without committing. On a conflict: abort and raise MergeConflict."""
     try:
-        run_git(worktree, "merge", "--no-ff", "--no-commit", commit)
+        run_git(worktree, *IDENTITY, "merge", "--no-ff", "--no-commit", commit)
     except GitError as exc:
         conflicts = run_git(worktree, "diff", "--name-only", "--diff-filter=U").splitlines()
         abort_merge(worktree)

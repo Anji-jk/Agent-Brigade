@@ -12,9 +12,10 @@ from typing import Any
 from sqlalchemy import Engine
 
 from core.runs import run_directory
+from pipeline.control import continue_request
 from pipeline.control import task_control as control
 from pipeline.stages.interrupt import settle_task, settle_waiting
-from pipeline.stages.story_report import CANCELLED, PAUSED, StoryResult
+from pipeline.stages.story_report import CANCELLED, PAUSED, WAITING, StoryResult
 
 
 class Hearing:
@@ -74,3 +75,22 @@ class Hearing:
         if action:
             control.clear_request(self.run_dir, key)
         return False
+
+    def released(self, key: str) -> bool:
+        """Was the Stop taken back (Continue)? Then a task this loop holds as stopped is not any
+        more: it is put back among the tasks that wait."""
+        if control.settled(self.run_dir, key) or control.pending(self.run_dir, key):
+            return False
+        outcome = self.result.tasks[key]
+        outcome.status, outcome.detail = WAITING, ""
+        self.note("task_released", key=key)
+        return True
+
+    def continuing(self, key: str) -> int | None:
+        """The attempt a person asked to continue, if there is one waiting to go on."""
+        return continue_request.wanted(self.run_dir, key)
+
+    def started_again(self, key: str, number: int) -> None:
+        """The task is running again: the note has done its work."""
+        continue_request.spent(self.run_dir, key)
+        self.note("task_continued", key=key, attempt=number)

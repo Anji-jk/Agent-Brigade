@@ -83,6 +83,7 @@ async function start() {
   }
   Brigade.publisher.init({ initials: health.user_initials, jiraSite: health.jira_site_url });
   Brigade.planning.init();
+  Brigade.orchestrator.init();
 }
 
 document.getElementById("project-select").addEventListener("change", (event) => {

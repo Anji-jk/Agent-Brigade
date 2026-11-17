@@ -38,3 +38,11 @@ class TaskControlOut(BaseModel):
 class StopAllOut(BaseModel):
     run_id: str
     stopping: list[str]  # the tasks that were running and are now being stopped
+
+
+class ContinueOut(BaseModel):
+    run_id: str
+    continuing: list[str]  # the tasks that go on, each from the stage it had reached
+    skipped: list[str]  # tasks that could not continue, each with the reason in words
+    loop_started: bool  # True: no loop was running, so a new one was started on the same run
+    detail: str  # in words: where each task resumes from

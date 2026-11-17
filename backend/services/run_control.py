@@ -104,7 +104,9 @@ class RunControlService:
         for row in runs.runs_of_story(session, project_id, key):
             if row.run_id is None:
                 continue
-            built = states.build_state(run_directory(root, row.run_id), row.run_id, self._lines)
+            built = states.build_state(
+                run_directory(root, row.run_id), row.run_id, self._lines, quick=True
+            )
             spent = sum(
                 agent.cost or 0.0
                 for task in rows_of_run(session, row.id)

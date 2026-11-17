@@ -8,7 +8,8 @@ run_story   goes over the plan's tasks, again and again, and moves each one that
             - an attempt that needs a person (Needs review, Builder error, left unfinished) is
               not retried: money is not spent on a problem that code cannot explain;
             - a task a person Stopped is skipped, and the tasks that depend on it keep waiting;
-              a task a person Cancelled is final, and the tasks that depend on it are Blocked.
+              a task a person Cancelled is final, and the tasks that depend on it are Blocked;
+            - a task a person Continued goes on in the same attempt, from the stage it reached.
 Tasks that may run together do: up to BRIGADE_MAX_PARALLEL at once. A task waits only when
 a rule says so: its dependencies are not merged, it may touch the same files as a running
 task, or it is not parallel-safe (then it runs alone, and nothing starts beside it).
@@ -29,6 +30,7 @@ from core.db import get_session, init_db
 from core.db.repositories import merge_rows
 from core.runs import run_directory
 from core.settings import Settings
+from pipeline.control.heartbeat import beating
 from pipeline.planning.plan_order import overlapping_tasks
 from pipeline.runner.claude_runner import AgentRunner
 from pipeline.stages import events
@@ -51,6 +53,9 @@ from pipeline.stages.story_report import (
     StoryResult,
     TaskOutcome,
     write_story_report,
+)
+from pipeline.stages.story_report import (
+    FILE as REPORT_FILE,
 )
 from pipeline.stages.task_run import run_task
 from pipeline.workspace.lock import run_lock
@@ -105,8 +110,9 @@ class _Loop:
         else:
             self.note("task_failed", key=key, attempt=number, reason="could not be merged")
 
-    def can_start(self, task: dict) -> bool:
-        """A free place, nothing it must not run beside, and its start rules met."""
+    def can_start(self, task: dict, resume: bool = False) -> bool:
+        """A free place, nothing it must not run beside, and its start rules met. A task that is
+        continued has met them already: it holds its place among the running tasks."""
         if len(self.running) >= self.limit:
             return False
         if self.running and not (task["parallel_safe"] and all(self.safe[k] for k in self.running)):
@@ -114,12 +120,18 @@ class _Loop:
         near = {_key(self.by_id[i]) for i in overlapping_tasks(self.plan["tasks"], task["id"])}
         if near & set(self.running):  # a task not in the database yet cannot be seen by Git
             return False
+        if resume:
+            return True
         return not start_blockers(self.root, self.plan, self.run_id, _key(task), self.engine)
 
-    def start(self, pool: Executor, key: str, number: int) -> None:
-        self.note("task_started", key=key, attempt=number)
+    def start(self, pool: Executor, key: str, number: int, resume: bool = False) -> None:
+        if resume:
+            self.hearing.started_again(key, number)
+        else:
+            self.note("task_started", key=key, attempt=number)
+        more = {"resume": True} if resume else {}
         future = pool.submit(
-            run_task, self.settings, self.run_id, key, self.runner, number, self.engine
+            run_task, self.settings, self.run_id, key, self.runner, number, self.engine, **more
         )
         self.running[key] = (future, number)
         self.result.tasks[key].attempts = number
@@ -159,10 +171,29 @@ class _Loop:
                 return True
         return False
 
+    def retry_number(self, key: str, number: int, kind: str | None) -> int | None:
+        """The number the last attempt had, or the one a retry would replace; None: the task
+        stops here (it used its attempts, or its attempt needs a person) and has been told so."""
+        if kind == "failed":
+            try:
+                return (
+                    next_attempt_number(self.engine, self.run_id, key, self.settings.max_retries)
+                    - 1
+                )
+            except BuildError as exc:
+                self.stop(key, FAILED, str(exc))
+                return None
+        if kind != "new":
+            self.stop(key, NEEDS_PERSON, f"attempt {number} is {kind or 'unfinished'}")
+            return None
+        return number
+
     def step(self, task: dict, states: dict[str, str], pool: Executor) -> bool:
         """Move one task if it can move. True: something happened."""
         key = _key(task)
         outcome = self.result.tasks[key]
+        if outcome.status == PAUSED:
+            self.hearing.released(key)
         if outcome.status in STOPPED or outcome.status == PAUSED or key in self.running:
             return False
         if states.get(key) == IS_MERGED:
@@ -177,20 +208,16 @@ class _Loop:
         if self.blocked_by_dependency(task, key):
             return True
         number, kind = newest or (0, "new")
+        if newest and self.hearing.continuing(key) == number:
+            if not self.can_start(task, resume=True):
+                return False
+            self.start(pool, key, number, resume=True)
+            return True
         if kind == "done":
             self.merge(key, number)
             return True
-        if kind == "failed":
-            try:
-                number = (
-                    next_attempt_number(self.engine, self.run_id, key, self.settings.max_retries)
-                    - 1
-                )
-            except BuildError as exc:
-                self.stop(key, FAILED, str(exc))
-                return True
-        elif kind != "new":
-            self.stop(key, NEEDS_PERSON, f"attempt {number} is {kind or 'unfinished'}")
+        number = self.retry_number(key, number, kind)
+        if number is None:
             return True
         if not self.can_start(task):
             return False
@@ -220,7 +247,9 @@ def run_story(
     engine = init_db(engine)
     root = project_root(settings)
     approved_plan(root, run_id)  # refuse early, before the lock folder is made
-    with run_lock(run_directory(root, run_id)):
+    folder = run_directory(root, run_id)
+    with run_lock(folder), beating(folder):
+        (run_directory(root, run_id) / REPORT_FILE).unlink(missing_ok=True)  # the old word is stale
         result = _Loop(settings, run_id, runner, engine).run()
     write_story_report(root, result)
     return result

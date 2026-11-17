@@ -25,6 +25,7 @@ from core.settings import Settings
 from pipeline.planning.profiles import profile_for, role_settings
 from pipeline.runner.claude_runner import AgentError, AgentReply, AgentRunner
 from pipeline.stages.attempt_log import AttemptLog, agent_events_path
+from pipeline.stages.attempt_resume import reopen_rows, resume_note, resume_ready
 from pipeline.stages.builder_prompt import builder_prompt
 from pipeline.stages.builder_report import BuildResult
 from pipeline.stages.builder_session import builder_request
@@ -32,7 +33,7 @@ from pipeline.stages.errors import BuildError
 from pipeline.stages.prepare import approved_plan, prepare_attempt, project_root
 from pipeline.stages.retry import previous_feedback
 from pipeline.stages.schedule import start_blockers
-from pipeline.workspace.git import changed_files, repository_state
+from pipeline.workspace.git import changed_paths, repository_state
 
 Row = TypeVar("Row")
 
@@ -129,6 +130,21 @@ def _ask_builder(
     return reply, error
 
 
+def _start_rows(engine: Engine, sub_task_id: int, number: int, ready: Any) -> int:
+    """The attempt's row, made now that its worktree exists. Returns its id."""
+    with get_session(engine) as session:
+        attempt = attempt_rows.start_attempt(
+            session, _row(session, SubTask, sub_task_id), number, ready.branch, ready.worktree,
+            _now(),
+        )  # fmt: skip
+        return attempt.id
+
+
+def _feedback(root: Path, run_id: str, key: str, number: int, resume: bool) -> str:
+    earlier = previous_feedback(root, run_id, key, number)
+    return resume_note(number, earlier) if resume else earlier
+
+
 def build_attempt(
     settings: Settings,
     run_id: str,
@@ -136,50 +152,53 @@ def build_attempt(
     runner: AgentRunner,
     number: int = 1,
     engine: Engine | None = None,
+    *,
+    resume: bool = False,
 ) -> BuildResult:
-    """Prepare the worktree, run the Builder, record it. BuildError/PrepareError: refused."""
+    """Prepare the worktree, run the Builder, record it. BuildError/PrepareError: refused.
+
+    `resume`: Continue. The attempt's own worktree and rows are used as they are (the Builder's
+    unfinished work is in it), and the Builder is told so."""
     root = project_root(settings)
     plan = approved_plan(root, run_id)
     task = _task(plan, key)
     engine = init_db(engine)
     sub_task_id = _sub_task_id(engine, settings, plan, task, run_id)
-    blockers = start_blockers(root, plan, run_id, key, engine)
-    if blockers:
-        raise BuildError(f"{key} cannot start yet:\n" + "\n".join(f"- {text}" for text in blockers))
-    ready = prepare_attempt(settings, run_id, key, number)
     log = AttemptLog(root, run_id, key, number)
-    log.emit("worktree_ready", branch=ready.branch, setup_ok=ready.ok)
+    if resume:
+        ready = resume_ready(settings, run_id, key, number)
+        attempt_id = reopen_rows(engine, run_id, key, number, "builder")
+        log.emit("worktree_reused", branch=ready.branch)
+    else:
+        blockers = start_blockers(root, plan, run_id, key, engine)
+        if blockers:
+            raise BuildError(
+                f"{key} cannot start yet:\n" + "\n".join(f"- {text}" for text in blockers)
+            )
+        ready = prepare_attempt(settings, run_id, key, number)
+        log.emit("worktree_ready", branch=ready.branch, setup_ok=ready.ok)
+        attempt_id = _start_rows(engine, sub_task_id, number, ready)
     result = BuildResult(
         run_id, key, number, ready.branch, ready.worktree, _limits(task), setup=ready.setup
     )
-    with get_session(engine) as session:
-        attempt = attempt_rows.start_attempt(
-            session,
-            _row(session, SubTask, sub_task_id),
-            number,
-            ready.branch,
-            ready.worktree,
-            _now(),
-        )
-        attempt_id = attempt.id
     reply, run_row_id = None, None
     if ready.ok:
         session_id = str(uuid.uuid4())
         with get_session(engine) as session:
             row = attempt_rows.start_agent_run(
-                session, attempt, "builder", result.limits["model"], result.limits["effort"],
-                session_id, _now(),
+                session, _row(session, Attempt, attempt_id), "builder",
+                result.limits["model"], result.limits["effort"], session_id, _now(),
             )  # fmt: skip
             run_row_id = row.id
         log.emit("builder_started", model=result.limits["model"], session_id=session_id)
         reply, result.error = _ask_builder(
             runner, plan, task, Path(ready.worktree), root, session_id,
-            previous_feedback(root, run_id, key, number),
+            _feedback(root, run_id, key, number, resume),
             agent_events_path(root, run_id, key, number, "builder"),
         )  # fmt: skip
     else:
         result.error = "setup failed in the attempt worktree, so no Builder was started."
-    result.changed = changed_files(Path(ready.worktree))
+    result.changed = changed_paths(Path(ready.worktree))
     if reply is not None:
         result.usage, result.report = _usage(reply), reply.text
     log.emit(

@@ -2,9 +2,16 @@
 
 from fastapi import APIRouter, HTTPException, Request
 
-from backend.schemas.run_control import StartedOut, StopAllOut, StoryLineOut, TaskControlOut
+from backend.schemas.run_control import (
+    ContinueOut,
+    StartedOut,
+    StopAllOut,
+    StoryLineOut,
+    TaskControlOut,
+)
 from backend.services.planning_types import PlanningServiceError
 from backend.services.run_control import RunControlService
+from backend.services.task_continue import ContinueService
 from backend.services.task_control import TaskControlService
 
 router = APIRouter()
@@ -46,6 +53,26 @@ def cancel_task(run_id: str, key: str, request: Request) -> TaskControlOut:
 def stop_all(run_id: str, request: Request) -> StopAllOut:
     try:
         return tasks(request).stop_all(run_id)
+    except PlanningServiceError as exc:
+        raise HTTPException(exc.status, str(exc)) from None
+
+
+def continuing(request: Request) -> ContinueService:
+    return request.app.state.task_continue
+
+
+@router.post("/runs/{run_id}/tasks/{key}/continue")
+def continue_task(run_id: str, key: str, request: Request) -> ContinueOut:
+    try:
+        return continuing(request).continue_task(run_id, key)
+    except PlanningServiceError as exc:
+        raise HTTPException(exc.status, str(exc)) from None
+
+
+@router.post("/runs/{run_id}/continue")
+def continue_run(run_id: str, request: Request) -> ContinueOut:
+    try:
+        return continuing(request).continue_run(run_id)
     except PlanningServiceError as exc:
         raise HTTPException(exc.status, str(exc)) from None
 
