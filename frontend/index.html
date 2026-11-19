@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="css/popup.css" />
     <link rel="stylesheet" href="css/plan.css" />
     <link rel="stylesheet" href="css/orchestrator.css" />
+    <link rel="stylesheet" href="css/orch-overview.css" />
   </head>
   <body>
     <svg width="0" height="0" style="position: absolute" aria-hidden="true">
@@ -167,7 +168,7 @@
             </div>
           </header>
           <nav class="orch-views" aria-label="Orchestrator views">
-            <button type="button" class="orch-view" disabled title="Will be created later">Overview</button>
+            <button type="button" class="orch-view" id="orch-view-overview" aria-pressed="false" title="All the runs of the project added up">Overview</button>
             <button type="button" class="orch-view selected" id="orch-view-stories" aria-pressed="true">Stories</button>
           </nav>
           <p class="status" id="orch-notice" hidden></p>
@@ -201,6 +202,7 @@
               </div>
             </div>
           </div>
+          <div id="orch-overview" class="ov" hidden></div>
         </section>
       </main>
     </div>
@@ -229,9 +231,16 @@
     <script src="js/components/orch-feed.js"></script>
     <script src="js/components/orch-agent.js"></script>
     <script src="js/components/orch-run.js"></script>
+    <script src="js/components/orch-overview-model.js"></script>
+    <script src="js/components/orch-cards.js"></script>
+    <script src="js/components/orch-pager.js"></script>
+    <script src="js/components/orch-chart.js"></script>
+    <script src="js/components/orch-runs-table.js"></script>
+    <script src="js/components/orch-views.js"></script>
     <script src="js/tabs/publisher.js"></script>
     <script src="js/tabs/plan-panel.js"></script>
     <script src="js/tabs/planning.js"></script>
+    <script src="js/tabs/orch-overview.js"></script>
     <script src="js/tabs/orchestrator.js"></script>
     <script src="js/app.js"></script>
   </body>

@@ -79,7 +79,12 @@ def _finish(job: PlanningJob, context: JobContext, result: PlanResult | None, er
         row.status, row.error = WAITING, None
         row.plan_file = str(result.path)
         row.branch = result.record["config"]["branch"]
-        row.cost = (result.record.get("planner") or {}).get("total_cost_usd")
+        planner = result.record.get("planner") or {}
+        row.cost = planner.get("total_cost_usd")
+        row.plan_input_tokens = planner.get("input_tokens")
+        row.plan_output_tokens = planner.get("output_tokens")
+        row.plan_cache_tokens = planner.get("cache_tokens")
+        row.plan_seconds = planner.get("duration_seconds")
         if job.previous_run_id:
             old = get_run(session, job.project_id, job.previous_run_id)
             if old is not None:

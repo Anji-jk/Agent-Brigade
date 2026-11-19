@@ -58,5 +58,12 @@ class FakeClaude:
                 record.update(sessionId=request.session_id, timestamp="2026-11-11T12:00:00Z")
                 out.write(json.dumps(record) + "\n")
         return AgentReply(
-            text=answer, session_id=request.session_id, cost_usd=0.01, turns=3, duration_ms=1500
+            text=answer,
+            session_id=request.session_id,
+            cost_usd=0.01,
+            turns=3,
+            duration_ms=1500,
+            input_tokens=120,
+            output_tokens=30,
+            cache_tokens=4000,
         )

@@ -10,6 +10,8 @@ Brigade.orchApi = (function () {
 
   return {
     stories: () => api("GET", "/api/orchestrator/stories"),
+    overview: () => api("GET", "/api/orchestrator/overview"),
+    overviewRuns: (page, size) => api("GET", "/api/orchestrator/overview/runs?page=" + page + "&size=" + size),
     progress: (id) => api("GET", run(id) + "/progress"),
     start: (id) => api("POST", run(id) + "/start"),
     stopTask: (id, key) => api("POST", task(id, key) + "/stop"),

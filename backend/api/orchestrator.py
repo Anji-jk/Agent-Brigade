@@ -10,6 +10,8 @@ from typing import Any, TypeVar
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from backend.schemas.orchestrator import ProgressOut
+from backend.schemas.overview import OverviewOut, RunPageOut
+from backend.services.overview import OverviewService
 from backend.services.planning_types import PlanningServiceError
 from backend.services.progress import ProgressService
 from pipeline.feed.sources import FeedError
@@ -24,6 +26,10 @@ def service(request: Request) -> ProgressService:
     return request.app.state.progress
 
 
+def overview_service(request: Request) -> OverviewService:
+    return request.app.state.overview
+
+
 def run(action: Callable[[], T]) -> T:
     try:
         return action()
@@ -31,6 +37,22 @@ def run(action: Callable[[], T]) -> T:
         raise HTTPException(exc.status, str(exc)) from None
     except FeedError as exc:
         raise HTTPException(400, str(exc)) from None
+
+
+@router.get("/orchestrator/overview")
+def overview(request: Request) -> OverviewOut:
+    """What all the runs of the project add up to."""
+    return run(lambda: overview_service(request).overview())
+
+
+@router.get("/orchestrator/overview/runs")
+def overview_runs(
+    request: Request,
+    page: int = Query(0, ge=0, description="0 is the newest page."),
+    size: int = Query(10, ge=1, le=50, description="Runs per page."),
+) -> RunPageOut:
+    """One page of the runs, newest first (the Overview's graph and table each ask for theirs)."""
+    return run(lambda: overview_service(request).run_page(page, size))
 
 
 @router.get("/runs/{run_id}/progress")

@@ -63,7 +63,11 @@ Table story_runs {
   plan_file varchar [note: 'path to plan.json']
   error text [note: 'why a run failed']
   budget decimal
-  cost decimal
+  cost decimal [note: 'what planning cost']
+  plan_input_tokens integer [note: 'what planning used; empty for plans made before these were kept']
+  plan_output_tokens integer
+  plan_cache_tokens integer
+  plan_seconds float
   started_at timestamp
   ended_at timestamp
   Note: 'One story planning and build'

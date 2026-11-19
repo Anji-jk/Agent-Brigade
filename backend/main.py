@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
 from backend.api import health, orchestrator, planning, projects, publisher, run_control
+from backend.services.overview import OverviewService
 from backend.services.planning import Executor, PlanningService
 from backend.services.progress import ProgressService
 from backend.services.projects import sync_env_project
@@ -76,6 +77,7 @@ def create_app(
             settings, engine, agents, jira_factory, planning_executor
         )
         app.state.progress = ProgressService(settings, engine, command_line)
+        app.state.overview = OverviewService(settings, engine)
         app.state.run_control = RunControlService(settings, engine, loop_launcher, command_line)
         app.state.task_control = TaskControlService(settings, engine, command_line)
         app.state.task_continue = ContinueService(settings, engine, loop_launcher, command_line)

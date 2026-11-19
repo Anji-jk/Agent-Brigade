@@ -135,6 +135,18 @@ Brigade.orchestrator = (function () {
     paintRun();
   }
 
+  /** Open a run of a story (from the Overview's chart or table). */
+  async function openRun(key, runId) {
+    await selectStory(key);
+    if (!runId || runId === s.runId) return;
+    s.runId = runId;
+    s.run = null;
+    await refresh();
+    const first = model.firstToShow(s.run ? s.run.tasks : []);
+    if (first) pickTask(first.key);
+    paintRun();
+  }
+
   const refresh = () => (queue = queue.then(readAll)); // one read at a time, in order
 
   async function readAll() {
@@ -260,8 +272,9 @@ Brigade.orchestrator = (function () {
     });
     $("orch-stories").append(el("p", "muted small", "Loading stories..."));
     refresh();
+    Brigade.orchOverview.init();
     timer = setInterval(() => !working && !document.hidden && !$("orchestrator").hidden && refresh(), TICK);
   }
 
-  return { init, stop: () => clearInterval(timer) };
+  return { init, openRun, stop: () => clearInterval(timer) };
 })();

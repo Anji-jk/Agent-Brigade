@@ -79,7 +79,12 @@ class StoryRun(Base):
     plan_file: Mapped[str | None]  # path to plan.json
     error: Mapped[str | None] = mapped_column(Text)  # why a run failed
     budget: Mapped[float | None] = mapped_column(Money)
-    cost: Mapped[float | None] = mapped_column(Money)
+    cost: Mapped[float | None] = mapped_column(Money)  # what planning cost
+    # what planning used; empty for plans made before these were kept (shown as "not recorded")
+    plan_input_tokens: Mapped[int | None]
+    plan_output_tokens: Mapped[int | None]
+    plan_cache_tokens: Mapped[int | None]
+    plan_seconds: Mapped[float | None]
     started_at: Mapped[datetime | None]
     ended_at: Mapped[datetime | None]
 

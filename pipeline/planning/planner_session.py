@@ -72,6 +72,9 @@ def _metrics(replies: list[AgentReply], session_id: str, money: float) -> dict[s
         "num_turns": total("turns"),
         "total_cost_usd": total("cost_usd"),
         "duration_seconds": (total("duration_ms") or 0) / 1000 or None,
+        "input_tokens": total("input_tokens"),
+        "output_tokens": total("output_tokens"),
+        "cache_tokens": total("cache_tokens"),
     }
 
 
