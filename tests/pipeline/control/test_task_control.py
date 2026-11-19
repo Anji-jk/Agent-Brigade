@@ -74,3 +74,27 @@ def test_only_a_known_action_and_state_are_accepted(tmp_path):
         tc.ask(tmp_path, "SMT-62", "pause")
     with pytest.raises(ValueError):
         tc.settle(tmp_path, "SMT-62", "done", None, None)
+
+
+def test_a_request_can_say_why_it_was_made(tmp_path):
+    assert tc.reason_of(tmp_path, "SMT-62") is None
+    tc.ask(tmp_path, "SMT-62", tc.STOP, reason="The builder agent reached its turn limit.")
+    assert tc.pending(tmp_path, "SMT-62") == tc.STOP
+    assert tc.reason_of(tmp_path, "SMT-62") == "The builder agent reached its turn limit."
+
+
+def test_a_request_without_a_reason_has_none(tmp_path):
+    tc.ask(tmp_path, "SMT-62", tc.STOP)
+    assert tc.reason_of(tmp_path, "SMT-62") is None
+
+
+def test_the_reason_is_kept_in_the_settled_word_and_dropped_with_the_request(tmp_path):
+    tc.ask(tmp_path, "SMT-62", tc.STOP, reason="out of turns")
+    tc.settle(tmp_path, "SMT-62", tc.STOPPED, "builder", 1, reason="out of turns")
+    assert tc.settled(tmp_path, "SMT-62").reason == "out of turns"
+    assert tc.reason_of(tmp_path, "SMT-62") is None  # the request is spent
+
+
+def test_a_settled_word_made_without_a_reason_has_none(tmp_path):
+    tc.settle(tmp_path, "SMT-62", tc.STOPPED, "builder", 1)
+    assert tc.settled(tmp_path, "SMT-62").reason is None

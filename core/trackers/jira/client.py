@@ -2,7 +2,8 @@
 
 Read: who am I, a project, issue types, search, one issue, epics of a project, and the raw
 JSON of searches and issues (for readers that need fields Issue does not keep, such as links).
-Write: create an issue. Nothing here deletes or edits existing work items.
+Write: create an issue, move one through its workflow, change its labels, add a comment.
+Nothing here deletes work items.
 """
 
 import time
@@ -170,6 +171,26 @@ class JiraClient:
         raw = self.issue_raw(key, FIELDS)
         return Issue.from_jira(raw) if raw else None
 
+    def transitions(self, key: str) -> list[tuple[str, str]]:
+        """(transition id, the status it leads to) for each move open to `key` from where it is."""
+        found = self.request("GET", f"/issue/{key}/transitions") or {}
+        return [
+            (str(t["id"]), str((t.get("to") or {}).get("name", "")))
+            for t in found.get("transitions") or []
+            if isinstance(t, dict) and t.get("id")
+        ]
+
+    def status_names(self, project: str) -> set[str]:
+        """Every status name the space's workflows use."""
+        found = self.request("GET", f"/project/{project}/statuses") or []
+        return {
+            str(s["name"])
+            for kind in found
+            if isinstance(kind, dict)
+            for s in kind.get("statuses") or []
+            if isinstance(s, dict) and s.get("name")
+        }
+
     def epics(self, project: str, limit: int = 100) -> list[Issue]:
         """Epics of a project, newest first."""
         jql = f"project = {quote_jql(project)} AND issuetype = Epic ORDER BY created DESC"
@@ -221,6 +242,15 @@ class JiraClient:
                 "outwardIssue": {"key": blocked},
             },
         )
+
+    def transition(self, key: str, transition_id: str) -> None:
+        """Move `key` by one of the ids that transitions() gave."""
+        self.request("POST", f"/issue/{key}/transitions", {"transition": {"id": transition_id}})
+
+    def edit_labels(self, key: str, add: list[str], remove: list[str]) -> None:
+        """Add and remove labels without touching the others."""
+        edits = [{"add": name} for name in add] + [{"remove": name} for name in remove]
+        self.request("PUT", f"/issue/{key}", {"update": {"labels": edits}})
 
     def add_comment(self, key: str, text: str) -> None:
         """A comment on `key`. (A comment sent with a link lands on the blocker instead.)"""

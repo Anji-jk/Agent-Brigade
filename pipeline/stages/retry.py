@@ -13,6 +13,8 @@ from sqlalchemy import Engine
 
 from core.db import get_session
 from core.db.repositories import merge_rows
+from core.runs import run_directory
+from pipeline.control import task_control as control
 from pipeline.stages.errors import BuildError
 from pipeline.stages.stage_inputs import read_report, report_path
 
@@ -54,3 +56,24 @@ def next_attempt_number(engine: Engine, run_id: str, key: str, max_retries: int)
             "cannot start."
         )
     return attempt.number + 1
+
+
+def retryable_keys(
+    engine: Engine, root: Path, run_id: str, keys: list[str], max_retries: int
+) -> list[str]:
+    """The tasks of `keys` a restarted loop would retry: Failed (or needing review), with an
+    attempt left under the current limit, and not cancelled by a person."""
+    run_dir = run_directory(root, run_id)
+    found = []
+    for key in keys:
+        settled = control.settled(run_dir, key)
+        if settled is not None and settled.state == control.CANCELLED:
+            continue
+        with get_session(engine) as session:
+            newest = merge_rows.newest_attempt(session, run_id, key)
+        if newest is None:
+            continue
+        attempt = newest[1]
+        if attempt.outcome in RETRYABLE and attempt.number < 1 + max_retries:
+            found.append(key)
+    return found

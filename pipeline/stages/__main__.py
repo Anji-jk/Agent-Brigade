@@ -37,6 +37,10 @@ python -m pipeline.stages story <run_id>
 python -m pipeline.stages loop <run_id>
     what the Start button runs: prepare the run if it is not prepared yet (a failed setup stops
     it, a baseline that already fails is only reported), then the story loop as above
+python -m pipeline.stages jira-mirror <run_id>
+    make Jira show where a finished run ended (statuses, labels, comments), from its story
+    report. The build does this itself after every step; use this when Jira was unreachable or
+    a status name was wrong (JIRA_STATUS_* in .env). Writes only to Jira; no agent, no cost
 python -m pipeline.stages rows <run_id>
     the sub_tasks, attempts, agent_runs and checks rows the builds of this run wrote
 python -m pipeline.stages clean <run_id> [--discard]
@@ -55,6 +59,8 @@ import sys
 
 from core.db import get_engine, init_db
 from core.settings import get_settings
+from core.trackers.errors import TrackerError
+from pipeline.jira_sync.catch_up import catch_up
 from pipeline.planning.plan_file import PlanFileError
 from pipeline.runner.claude_runner import AgentError, AgentRunner, ClaudeCliRunner
 from pipeline.stages.builder_report import format_build, write_build_report
@@ -86,7 +92,7 @@ from pipeline.stages.tester_report import format_tester, write_tester_result
 from pipeline.stages.tester_run import run_tester
 from pipeline.workspace.git import GitError
 
-HANDLED = (PrepareError, BuildError, AgentError, PlanFileError, GitError, ValueError)
+HANDLED = (PrepareError, BuildError, AgentError, PlanFileError, GitError, TrackerError, ValueError)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -127,6 +133,7 @@ def parser() -> argparse.ArgumentParser:
     merge.add_argument("run_id")
     merge.add_argument("key", help="the sub-task's Jira key, such as SMT-62")
     merge.add_argument("--number", type=int, default=None, help="attempt number (default newest)")
+    commands.add_parser("jira-mirror", help="make Jira match a finished run").add_argument("run_id")
     commands.add_parser("story", help="build and merge every task of the story").add_argument(
         "run_id"
     )
@@ -160,6 +167,10 @@ def run_flow(args: argparse.Namespace, settings, runner: AgentRunner) -> int | N
         path = write_merge_report(project_root(settings), merged)
         print(format_merge(merged, path))
         return 0 if merged.merged else 2
+    if args.command == "jira-mirror":
+        problems = catch_up(settings, args.run_id)
+        print("\n".join(problems) if problems else "Jira shows where the run ended.")
+        return 2 if problems else 0
     if args.command == "story":
         story = run_story(settings, args.run_id, runner)
         print(story.text())

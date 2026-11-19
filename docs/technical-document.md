@@ -668,6 +668,8 @@ All settings come from environment variables, which are read from a .env file lo
 | JIRA_API_TOKEN        | Jira API token                                 | –                         | yes    |
 | JIRA_SITE_URL         | https://\<site\>.atlassian.net                 | –                         | no     |
 | JIRA_PROJECT_KEY      | The Jira project's key                         | –                         | no     |
+| JIRA_STATUS_TODO, JIRA_STATUS_IN_PROGRESS, JIRA_STATUS_IN_REVIEW, JIRA_STATUS_DONE, JIRA_STATUS_ERROR | The names this Jira space gives the five statuses | defaults To Do, In Progress, In Review, Done, Error | no |
+| BRIGADE_JIRA_SYNC     | Write statuses, labels and comments to Jira    | true (default) or false   | no     |
 | BRIGADE_REPOSITORY    | OWNER/REPO of the target project               | –                         | no     |
 | BRIGADE_PROJECT_PATH  | Local checkout of the target project           | –                         | no     |
 | BRIGADE_BASE_BRANCH   | Branch that story branches start from          | –                         | no     |

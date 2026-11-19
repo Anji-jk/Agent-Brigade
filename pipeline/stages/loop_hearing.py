@@ -33,13 +33,16 @@ class Hearing:
         self.run_dir = run_directory(root, run_id)
         self.result, self.note = result, note
 
-    def interrupted(self, key: str, state: str, stage: str) -> None:
-        """A person stopped or cancelled `key`: say so, and what Continue would do."""
+    def interrupted(self, key: str, state: str, stage: str, reason: str | None = None) -> None:
+        """`key` was stopped or cancelled: say so, and what Continue would do. `reason`: the
+        limit that stopped it, when a person did not."""
         paused = state == control.STOPPED
         outcome = self.result.tasks[key]
         outcome.status = PAUSED if paused else CANCELLED
         outcome.detail = (
-            f"stopped on request; Continue resumes from the {stage} stage"
+            f"{reason.rstrip('.')}; Continue resumes from the {stage} stage"
+            if paused and reason
+            else f"stopped on request; Continue resumes from the {stage} stage"
             if paused
             else f"cancelled on request while at the {stage} stage"
         )
@@ -57,7 +60,7 @@ class Hearing:
             return True
         settled = control.settled(self.run_dir, key)
         if settled:
-            self.interrupted(key, settled.state, settled.stage or "builder")
+            self.interrupted(key, settled.state, settled.stage or "builder", settled.reason)
             return False
         return None
 

@@ -43,7 +43,7 @@ Brigade.orchRun = (function () {
     const anyStopped = run.tasks.some(isStopped);
     const startWhy = state === "not_started" ? null : state === "running" ? "It is already running." : "Use Continue for a stopped run.";
     const stopWhy = state === "running" && anyRunning ? null : "Nothing is running now.";
-    const contWhy = anyStopped ? null : "No task is stopped.";
+    const contWhy = anyStopped || state === "stopped" ? null : "No task is stopped.";
     const buttons = el("div", "orch-bar-actions");
     buttons.append(
       button("Start", "btn-gold", startWhy, act.start),

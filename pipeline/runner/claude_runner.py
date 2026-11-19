@@ -36,6 +36,7 @@ from pipeline.workspace.commands import kill_tree
 
 DEFAULT_TIMEOUT_SECONDS = 600.0
 MAX_ERROR_CHARS = 500
+LIMITS = {"error_max_turns": "turns", "error_max_budget_usd": "budget"}  # Claude Code's words
 
 
 class AgentError(Exception):
@@ -44,6 +45,17 @@ class AgentError(Exception):
 
 class AgentStopped(AgentError):
     """A person asked for the task to stop (or cancel), so the agent was not run, or was killed."""
+
+
+class AgentLimit(AgentError):
+    """The agent ran into a limit it was given and was cut short; its work so far is not lost.
+
+    `limit` is "turns", "time" or "budget" (dollars). `partial` is what it spent before it was
+    cut short, when Claude Code said so (turns and dollars); a run killed for time has none."""
+
+    def __init__(self, message: str, limit: str, partial: "AgentReply | None" = None) -> None:
+        super().__init__(message)
+        self.limit, self.partial = limit, partial
 
 
 @dataclass(frozen=True)
@@ -183,18 +195,7 @@ def _table(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def parse_reply(stdout: str, stderr: str, returncode: int, request: AgentRequest) -> AgentReply:
-    """The agent's final answer from `claude -p --output-format json`."""
-    try:
-        result = json.loads(stdout)
-    except ValueError:
-        detail = (stderr or stdout).strip()[-MAX_ERROR_CHARS:] or "no output"
-        raise AgentError(f"Claude Code exited with code {returncode}: {detail}") from None
-    if not isinstance(result, dict):
-        raise AgentError("Claude Code returned an unexpected answer.")
-    if result.get("is_error") or result.get("subtype") not in (None, "success"):
-        reason = stop_reason(result, request)
-        raise AgentError(f"The {request.agent} agent stopped: {reason[:MAX_ERROR_CHARS]}")
+def _reply(result: dict[str, Any], request: AgentRequest) -> AgentReply:
     usage = _table(result.get("usage"))
     models = _table(result.get("modelUsage"))
     cached = [usage.get("cache_read_input_tokens"), usage.get("cache_creation_input_tokens")]
@@ -209,6 +210,25 @@ def parse_reply(stdout: str, stderr: str, returncode: int, request: AgentRequest
         cache_tokens=sum(n for n in cached if isinstance(n, int)) if any(cached) else None,
         model_used=", ".join(models) or None,
     )
+
+
+def parse_reply(stdout: str, stderr: str, returncode: int, request: AgentRequest) -> AgentReply:
+    """The agent's final answer from `claude -p --output-format json`."""
+    try:
+        result = json.loads(stdout)
+    except ValueError:
+        detail = (stderr or stdout).strip()[-MAX_ERROR_CHARS:] or "no output"
+        raise AgentError(f"Claude Code exited with code {returncode}: {detail}") from None
+    if not isinstance(result, dict):
+        raise AgentError("Claude Code returned an unexpected answer.")
+    if result.get("is_error") or result.get("subtype") not in (None, "success"):
+        reason = stop_reason(result, request)
+        message = f"The {request.agent} agent stopped: {reason[:MAX_ERROR_CHARS]}"
+        limit = LIMITS.get(str(result.get("subtype")))
+        if limit:
+            raise AgentLimit(message, limit, _reply(result, request))
+        raise AgentError(message)
+    return _reply(result, request)
 
 
 def _text(output: bytes | str | None) -> str:
@@ -239,8 +259,9 @@ class ClaudeCliRunner:
             reader.join(timeout=5)
         if how == STOPPED:
             raise AgentStopped(f"The {request.agent} agent was stopped on request.")
-        raise AgentError(
-            f"The {request.agent} agent did not finish within {request.timeout:.0f} seconds."
+        raise AgentLimit(
+            f"The {request.agent} agent did not finish within {request.timeout:.0f} seconds.",
+            "time",
         )
 
     def _stream(self, command: list[str], request: AgentRequest) -> tuple[str, str, int]:
@@ -338,8 +359,8 @@ class ClaudeCliRunner:
                 )
             except subprocess.TimeoutExpired:
                 seconds = f"{request.timeout:.0f}"
-                raise AgentError(
-                    f"The {request.agent} agent did not finish within {seconds} seconds."
+                raise AgentLimit(
+                    f"The {request.agent} agent did not finish within {seconds} seconds.", "time"
                 ) from None
             except OSError as exc:
                 raise AgentError(f"Claude Code could not be started: {exc}") from exc

@@ -11,7 +11,13 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from pipeline.checks.agent_reports import ReportError
-from pipeline.runner.claude_runner import AgentError, AgentReply, AgentRequest, AgentRunner
+from pipeline.runner.claude_runner import (
+    AgentError,
+    AgentLimit,
+    AgentReply,
+    AgentRequest,
+    AgentRunner,
+)
 
 AGAIN = (
     "Your answer could not be used: {why} Answer again with only the JSON object described in "
@@ -58,6 +64,11 @@ def _added(first: AgentReply, second: AgentReply) -> AgentReply:
     )
 
 
+def _spent(error: AgentError) -> AgentReply | None:
+    """What an agent that ran into a limit had used up, so its cost is not lost."""
+    return error.partial if isinstance(error, AgentLimit) else None
+
+
 def ask_for_report(
     runner: AgentRunner, request: AgentRequest, parse: Callable[[str], Any]
 ) -> Asked:
@@ -65,7 +76,7 @@ def ask_for_report(
     try:
         reply = runner.run(request)
     except AgentError as exc:
-        return Asked(None, None, str(exc))
+        return Asked(None, _spent(exc), str(exc))
     try:
         return Asked(parse(reply.text), reply, None)
     except ReportError as exc:
@@ -77,7 +88,8 @@ def ask_for_report(
     try:
         second = runner.run(again)
     except AgentError as exc:
-        return Asked(None, reply, str(exc))
+        spent = _spent(exc)
+        return Asked(None, _added(reply, spent) if spent else reply, str(exc))
     reply = _added(reply, second)
     try:
         return Asked(parse(second.text), reply, None)

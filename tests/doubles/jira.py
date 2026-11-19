@@ -3,6 +3,7 @@
 import copy
 import json
 import re
+import time
 
 import httpx
 
@@ -17,6 +18,7 @@ class FakeJira:
     def __init__(self) -> None:
         self.issues: dict[str, dict] = {}
         self.requests: list[tuple[str, str, dict | None]] = []
+        self.delay = 0.0  # seconds every call takes
         self.down = False  # True: every call fails as if Jira were unreachable
         self.fail_create_at: int | None = None  # the n-th create (1-based) answers 400
         self.creates = 0
@@ -26,6 +28,10 @@ class FakeJira:
         self.fail_comments = False  # every comment answers 400
         self.drop_links = False  # links are accepted (201) but not kept
         self.next_number = 100
+        # Which statuses a status may move to (a status missing here may move anywhere).
+        self.workflow: dict[str, list[str]] = {}
+        self.statuses = ["To Do", "In Progress", "In Review", "Done", "Error"]
+        self.moves: list[tuple[str, str]] = []  # (issue key, status it moved to)
         self.issue_types = [
             {"name": "Epic", "hierarchyLevel": 1},
             {"name": "Story", "hierarchyLevel": 0},
@@ -91,11 +97,15 @@ class FakeJira:
         return view
 
     def handler(self, request: httpx.Request) -> httpx.Response:
+        time.sleep(self.delay)
         body = json.loads(request.content) if request.content else None
         self.requests.append((request.method, request.url.path, body))
         payload: dict = body or {}
         if self.down:
             raise httpx.ConnectError("down", request=request)
+        special = self._workflow_call(request, payload)
+        if special is not None:
+            return special
         if request.method == "GET" and "/project/" in request.url.path:
             return httpx.Response(200, json={"key": "SMT", "issueTypes": self.issue_types})
         if request.method == "POST" and request.url.path.endswith("/issue"):
@@ -130,6 +140,35 @@ class FakeJira:
                 found.sort(key=lambda i: int(i["key"].rsplit("-", 1)[1]))
             return httpx.Response(200, json={"issues": found, "isLast": True})
         return httpx.Response(404, json={})
+
+    def _workflow_call(self, request: httpx.Request, payload: dict) -> httpx.Response | None:
+        """Transitions, label edits and the project's statuses."""
+        path = request.url.path
+        if request.method == "GET" and path.endswith("/statuses"):
+            return httpx.Response(200, json=[{"statuses": [{"name": n} for n in self.statuses]}])
+        if path.endswith("/transitions"):
+            key = path.rsplit("/", 2)[1]
+            fields = self.issues[key]["fields"]
+            if request.method == "GET":
+                here = fields["status"]["name"]
+                names = self.workflow.get(here, [n for n in self.statuses if n != here])
+                return httpx.Response(
+                    200,
+                    json={"transitions": [{"id": f"t-{n}", "to": {"name": n}} for n in names]},
+                )
+            target = payload["transition"]["id"][2:]
+            fields["status"] = {"name": target, "statusCategory": {"key": "new"}}
+            self.moves.append((key, target))
+            return httpx.Response(204)
+        if request.method == "PUT" and "/issue/" in path:
+            fields = self.issues[path.rsplit("/", 1)[1]]["fields"]
+            for edit in payload["update"]["labels"]:
+                if "add" in edit and edit["add"] not in fields["labels"]:
+                    fields["labels"].append(edit["add"])
+                if "remove" in edit and edit["remove"] in fields["labels"]:
+                    fields["labels"].remove(edit["remove"])
+            return httpx.Response(204)
+        return None
 
     def _link(self, body: dict) -> httpx.Response:
         """Jira's names are the wrong way round: the blocker is the inwardIssue."""

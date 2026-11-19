@@ -30,10 +30,12 @@ from pipeline.control import task_control as control
 from pipeline.control.interrupted import clear_stale_lock, notice
 from pipeline.control.launch import launch_loop, loop_alive
 from pipeline.control.processes import CommandLine, command_line
+from pipeline.control.state import STOPPED, build_state
 from pipeline.planning.plan_file import PlanFileError, load_plan
 from pipeline.stages import checkpoint
 from pipeline.stages.attempt_resume import resume_ready
 from pipeline.stages.errors import BuildError
+from pipeline.stages.retry import retryable_keys
 from pipeline.stages.schedule import MERGED, task_states
 from pipeline.workspace.commands import kill_tree
 
@@ -73,9 +75,35 @@ class ContinueService:
                 except Conflict as exc:
                     skipped.append(f"{key}: {exc}")
             if not ready:
-                why = " ".join(skipped) or "No task is stopped, so there is nothing to continue."
-                raise Conflict(f"Run {run_id}: {why}")
+                return self._retry_failed(run_id, root, folder, budget_left, skipped)
             return self._go(ready, skipped, run_id, root, folder)
+
+    def _retry_failed(
+        self, run_id: str, root: Path, folder: Path, budget_left: bool, skipped: list[str]
+    ) -> ContinueOut:
+        """No task is stopped. A run whose loop ended with a Failed task that still has an attempt
+        left (the retries were raised since) gets a new loop, which retries it."""
+        again = []
+        if build_state(folder, run_id, self._lines) == STOPPED:
+            keys = self._plan_keys(root, run_id)
+            again = retryable_keys(self._engine, root, run_id, keys, self._settings.max_retries)
+        if not again:
+            why = " ".join(skipped) or (
+                "No task is stopped, so there is nothing to continue. A Failed task is retried "
+                "only while it has attempts left (BRIGADE_MAX_RETRIES in .env)."
+            )
+            raise Conflict(f"Run {run_id}: {why}")
+        if not budget_left:
+            raise Conflict(f"The budget of run {run_id} is used up: raise it, then continue.")
+        clear_stale_lock(folder, run_id, self._lines)
+        self._launch(folder, run_id, BRIGADE_FOLDER)
+        return ContinueOut(
+            run_id=run_id,
+            continuing=again,
+            skipped=skipped,
+            loop_started=True,
+            detail=f"A new loop was started to retry {', '.join(again)}.",
+        )
 
     # ---------- helpers ----------
 

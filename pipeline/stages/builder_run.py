@@ -23,7 +23,7 @@ from core.db.repositories import story_runs as runs
 from core.db.repositories.projects import sync_env_project
 from core.settings import Settings
 from pipeline.planning.profiles import profile_for, role_settings
-from pipeline.runner.claude_runner import AgentError, AgentReply, AgentRunner
+from pipeline.runner.claude_runner import AgentError, AgentLimit, AgentReply, AgentRunner
 from pipeline.stages.attempt_log import AttemptLog, agent_events_path
 from pipeline.stages.attempt_resume import reopen_rows, resume_note, resume_ready
 from pipeline.stages.builder_prompt import builder_prompt
@@ -122,6 +122,8 @@ def _ask_builder(
         reply = runner.run(request)
     except AgentError as exc:
         error = str(exc)
+        if isinstance(exc, AgentLimit):
+            reply = exc.partial  # what it spent before the limit is still paid for
     if repository_state(root) != before:
         error = (
             "The project's own folder changed while the Builder ran. It may have broken its rule "

@@ -30,7 +30,10 @@ from core.db import get_session, init_db
 from core.db.repositories import merge_rows
 from core.runs import run_directory
 from core.settings import Settings
+from core.trackers.jira.client import JiraClient
 from pipeline.control.heartbeat import beating
+from pipeline.jira_sync.background import BackgroundSync
+from pipeline.jira_sync.hook import make_sync
 from pipeline.planning.plan_order import overlapping_tasks
 from pipeline.runner.claude_runner import AgentRunner
 from pipeline.stages import events
@@ -75,7 +78,14 @@ def _newest(engine: Engine, run_id: str, key: str) -> tuple[int, str | None] | N
 
 
 class _Loop:
-    def __init__(self, settings: Settings, run_id: str, runner: AgentRunner, engine: Engine):
+    def __init__(
+        self,
+        settings: Settings,
+        run_id: str,
+        runner: AgentRunner,
+        engine: Engine,
+        jira: JiraClient | None = None,
+    ):
         self.settings, self.run_id, self.runner, self.engine = settings, run_id, runner, engine
         self.root: Path = project_root(settings)
         self.run_dir = run_directory(self.root, run_id)
@@ -86,6 +96,13 @@ class _Loop:
         self.hearing = Hearing(engine, self.root, run_id, self.result, self.note)
         self.limit = max(1, settings.max_parallel)
         self.running: dict[str, tuple[Future, int]] = {}  # key -> (its worker, attempt number)
+        sync = make_sync(settings, self.run_dir, run_id, self.plan, engine, jira)
+        self.sync = BackgroundSync(sync) if sync else None  # Jira never slows the loop
+
+    def push(self, finished: bool = False) -> None:
+        """Let Jira show where the build is (best effort: it never stops the build)."""
+        if self.sync:
+            self.sync.update(self.result, set(self.running), finished)
 
     def note(self, kind: str, **data) -> None:
         events.record(self.root, self.run_id, kind, **data)
@@ -140,7 +157,7 @@ class _Loop:
         try:
             done = future.result()
         except TaskInterrupted as exc:
-            self.hearing.interrupted(key, exc.state, exc.stage)
+            self.hearing.interrupted(key, exc.state, exc.stage, exc.reason)
             return
         except Exception as exc:  # noqa: BLE001 - one task's crash must not end the others
             self.stop(key, NEEDS_PERSON, f"{type(exc).__name__}: {exc}")
@@ -231,17 +248,28 @@ class _Loop:
                 moved = False
                 for task in self.plan["tasks"]:
                     states = task_states(self.root, self.run_id, self.engine)
-                    moved = self.step(task, states, pool) or moved
+                    did = self.step(task, states, pool)
+                    moved = did or moved
+                    if did:
+                        self.push()
                 if self.running:
                     self.collect()
+                    self.push()
                 elif not moved:
                     break
         self.note("story_finished" if self.result.ok else "story_stopped", **self.result.statuses())
+        self.push(finished=True)
+        if self.sync:
+            self.sync.close()  # waits a little for Jira, then lets the run end
         return self.result
 
 
 def run_story(
-    settings: Settings, run_id: str, runner: AgentRunner, engine: Engine | None = None
+    settings: Settings,
+    run_id: str,
+    runner: AgentRunner,
+    engine: Engine | None = None,
+    jira: JiraClient | None = None,
 ) -> StoryResult:
     """Run every task of the approved plan to merged, or as far as it can go."""
     engine = init_db(engine)
@@ -250,6 +278,6 @@ def run_story(
     folder = run_directory(root, run_id)
     with run_lock(folder), beating(folder):
         (run_directory(root, run_id) / REPORT_FILE).unlink(missing_ok=True)  # the old word is stale
-        result = _Loop(settings, run_id, runner, engine).run()
+        result = _Loop(settings, run_id, runner, engine, jira).run()
     write_story_report(root, result)
     return result

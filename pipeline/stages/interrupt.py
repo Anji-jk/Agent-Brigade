@@ -7,6 +7,8 @@ is not lost. ``guard`` is called before each stage and after each stage that was
 
 * Stop    the task is *stopped*: it can be continued from the stage it had reached.
 * Cancel  the task is *cancelled*: final. Its worktree and branch are kept, never deleted.
+* A limit (turns, time or dollars) that cuts an agent short is a Stop the loop leaves itself, with
+  the reason written in it, so Continue can go on from the same place.
 * A Stop that arrives after the Judge has finished the attempt well is ignored: it has finished
   already, and it is merged. A Cancel still wins, because nothing is merged yet.
 
@@ -14,6 +16,7 @@ Raising TaskInterrupted ends the task's work in the loop; the settled state is a
 and on the attempt's row by then.
 """
 
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,7 +27,7 @@ from core.db import get_session
 from core.db.repositories import attempt_rows, merge_rows
 from core.runs import run_directory
 from pipeline.control import task_control as control
-from pipeline.runner.claude_runner import AgentReply, AgentRequest, AgentRunner
+from pipeline.runner.claude_runner import AgentLimit, AgentReply, AgentRequest, AgentRunner
 from pipeline.stages import checkpoint
 from pipeline.stages.attempt_log import AttemptLog
 
@@ -32,23 +35,41 @@ OPEN_OUTCOMES = (None, "built", "error", "stopped")  # a Cancel may overwrite th
 
 
 class TaskInterrupted(Exception):
-    def __init__(self, state: str, stage: str, number: int | None) -> None:
+    def __init__(
+        self, state: str, stage: str, number: int | None, reason: str | None = None
+    ) -> None:
         super().__init__(f"The task was {state}; it resumes from {stage}.")
-        self.state, self.stage, self.number = state, stage, number
+        self.state, self.stage, self.number, self.reason = state, stage, number, reason
 
 
 class StopAware:
-    """Hands every request of a task the file whose appearance stops its agent."""
+    """Hands every request of a task the file whose appearance stops its agent.
+
+    `on_limit` is told the message of an agent that ran into a limit, before the error goes on."""
 
     def __init__(
-        self, runner: AgentRunner, stop_file: Path, record_file: Path | None = None
-    ) -> None:
+        self, runner: AgentRunner, stop_file: Path, record_file: Path | None = None,
+        on_limit: Callable[[str], None] | None = None,
+    ) -> None:  # fmt: skip
         self._runner, self._stop_file, self._record_file = runner, stop_file, record_file
+        self._on_limit = on_limit
 
     def run(self, request: AgentRequest) -> AgentReply:
-        return self._runner.run(
-            replace(request, stop_file=self._stop_file, record_file=self._record_file)
-        )
+        try:
+            return self._runner.run(
+                replace(request, stop_file=self._stop_file, record_file=self._record_file)
+            )
+        except AgentLimit as limit:
+            if self._on_limit:
+                self._on_limit(str(limit))
+            raise
+
+
+def stop_for_limit(root: Path, run_id: str, key: str, message: str) -> None:
+    """Leave a Stop that says why, unless a person already left a request (theirs wins)."""
+    run_dir = run_directory(root, run_id)
+    if control.pending(run_dir, key) is None:
+        control.ask(run_dir, key, control.STOP, reason=message)
 
 
 def stop_file_of(root: Path, run_id: str, key: str) -> Path:
@@ -61,15 +82,16 @@ def agent_file_of(root: Path, run_id: str, key: str) -> Path:
 
 def settle_task(
     engine: Engine, root: Path, run_id: str, key: str, state: str, stage: str,
-    number: int | None = None, *, force: bool = False,
+    number: int | None = None, *, force: bool = False, why: str | None = None,
 ) -> None:  # fmt: skip
     """Record the final word: the control file, and the newest attempt's row when it is open.
 
     `force`: the attempt was in flight, so its row is rewritten whatever it says now (an agent
     that was killed leaves an error behind). Without it only an open row is touched, so a Cancel
-    of a task that already Failed does not rewrite what the judge decided.
+    of a task that already Failed does not rewrite what the judge decided. `why`: the reason the
+    loop stopped the task itself (a limit); a person's Stop has none.
     """
-    control.settle(run_directory(root, run_id), key, state, stage, number)
+    control.settle(run_directory(root, run_id), key, state, stage, number, why)
     with get_session(engine) as session:
         found = merge_rows.newest_attempt(session, run_id, key)
         if found is None:
@@ -79,10 +101,13 @@ def settle_task(
             return
         if not force and attempt.outcome not in OPEN_OUTCOMES:
             return
-        reason = (
-            f"{'Stopped' if state == control.STOPPED else 'Cancelled'} by request; "
-            f"{'it resumes from' if state == control.STOPPED else 'it was at'} {stage}."
-        )
+        if why and state == control.STOPPED:
+            reason = f"{why.rstrip('.')}. It resumes from {stage}."
+        else:
+            reason = (
+                f"{'Stopped' if state == control.STOPPED else 'Cancelled'} by request; "
+                f"{'it resumes from' if state == control.STOPPED else 'it was at'} {stage}."
+            )
         attempt_rows.finish_attempt(
             session, attempt, sub, outcome=state, reason=reason, stage=stage, status=state,
             now=datetime.now(UTC),
@@ -103,9 +128,11 @@ def guard(
         control.clear_request(run_dir, key)
         return
     state = control.STOPPED if action == control.STOP else control.CANCELLED
-    settle_task(engine, root, run_id, key, state, resume_at, number, force=True)
-    AttemptLog(root, run_id, key, number).emit(f"task_{state}", stage=resume_at)
-    raise TaskInterrupted(state, resume_at, number)
+    why = control.reason_of(run_dir, key) if action == control.STOP else None
+    settle_task(engine, root, run_id, key, state, resume_at, number, force=True, why=why)
+    extra = {"reason": why} if why else {}
+    AttemptLog(root, run_id, key, number).emit(f"task_{state}", stage=resume_at, **extra)
+    raise TaskInterrupted(state, resume_at, number, why)
 
 
 def settle_waiting(

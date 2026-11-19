@@ -33,6 +33,16 @@ class Settings(BaseSettings):
     # Jira site
     jira_site_url: str = Field("", validation_alias="JIRA_SITE_URL")
 
+    # Jira status names. The five meanings are fixed in code; a space that calls In Review
+    # "Needs review" only changes its name here.
+    jira_status_todo: str = Field("To Do", validation_alias="JIRA_STATUS_TODO")
+    jira_status_in_progress: str = Field("In Progress", validation_alias="JIRA_STATUS_IN_PROGRESS")
+    jira_status_in_review: str = Field("In Review", validation_alias="JIRA_STATUS_IN_REVIEW")
+    jira_status_done: str = Field("Done", validation_alias="JIRA_STATUS_DONE")
+    jira_status_error: str = Field("Error", validation_alias="JIRA_STATUS_ERROR")
+    # False: the build never writes to Jira (no status moves, labels or comments).
+    jira_sync: bool = Field(True, validation_alias="BRIGADE_JIRA_SYNC")
+
     # The project Brigade works on (change these to switch project)
     tracker: Literal["jira", "github"] = Field("jira", validation_alias="BRIGADE_TRACKER")
     jira_project_key: str = Field("", validation_alias="JIRA_PROJECT_KEY")
@@ -66,6 +76,17 @@ class Settings(BaseSettings):
         if folder.startswith("~") or ":" in folder or ".." in parts:
             raise ValueError("must be a folder inside the project, such as docs")
         return folder
+
+    @field_validator(
+        "jira_status_todo",
+        "jira_status_in_progress",
+        "jira_status_in_review",
+        "jira_status_done",
+        "jira_status_error",
+    )
+    @classmethod
+    def _status_name(cls, value: str) -> str:
+        return value.strip()
 
     @field_validator("jira_project_key")
     @classmethod

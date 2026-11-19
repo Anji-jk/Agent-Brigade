@@ -35,6 +35,7 @@ class Settled:
     stage: str | None  # builder | checks | tester | judge: where Continue resumes
     attempt: int | None
     at: str
+    reason: str | None = None  # why it stopped, when the loop (not a person) stopped it
 
 
 def _path(run_dir: Path, key: str, suffix: str) -> Path:
@@ -56,13 +57,17 @@ def unsettle(run_dir: Path, key: str) -> None:
     _path(run_dir, key, "json").unlink(missing_ok=True)
 
 
-def ask(run_dir: Path, key: str, action: str) -> None:
-    """Leave the request. A Cancel is never weakened into a Stop by a later Stop."""
+def ask(run_dir: Path, key: str, action: str, reason: str | None = None) -> None:
+    """Leave the request. A Cancel is never weakened into a Stop by a later Stop.
+    `reason` is the loop's own words when it, not a person, is the one stopping the task."""
     if action not in (STOP, CANCEL):
         raise ValueError(f"Not an action: {action!r}")
     if pending(run_dir, key) == CANCEL:
         return
-    write_json_atomic(request_path(run_dir, key), {"action": action, "at": utc_now()})
+    note = {"action": action, "at": utc_now()}
+    if reason:
+        note["reason"] = reason
+    write_json_atomic(request_path(run_dir, key), note)
 
 
 def pending(run_dir: Path, key: str) -> str | None:
@@ -77,15 +82,30 @@ def pending(run_dir: Path, key: str) -> str | None:
     return CANCEL if action == CANCEL else STOP
 
 
+def reason_of(run_dir: Path, key: str) -> str | None:
+    """The reason written with the waiting request, or None (a person's own Stop has none)."""
+    try:
+        data = json.loads(request_path(run_dir, key).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    reason = data.get("reason") if isinstance(data, dict) else None
+    return reason if isinstance(reason, str) and reason else None
+
+
 def clear_request(run_dir: Path, key: str) -> None:
     request_path(run_dir, key).unlink(missing_ok=True)
 
 
-def settle(run_dir: Path, key: str, state: str, stage: str | None, attempt: int | None) -> None:
+def settle(
+    run_dir: Path, key: str, state: str, stage: str | None, attempt: int | None,
+    reason: str | None = None,
+) -> None:  # fmt: skip
     """Record the final word on the task (the request is spent) and drop the request."""
     if state not in (STOPPED, CANCELLED):
         raise ValueError(f"Not a state: {state!r}")
     record = {"state": state, "stage": stage, "attempt": attempt, "at": utc_now()}
+    if reason:
+        record["reason"] = reason
     write_json_atomic(_path(run_dir, key, "json"), record)
     clear_request(run_dir, key)
 
@@ -104,4 +124,5 @@ def settled(run_dir: Path, key: str) -> Settled | None:
         data.get("stage") if isinstance(data.get("stage"), str) else None,
         attempt if isinstance(attempt, int) and not isinstance(attempt, bool) else None,
         str(data.get("at") or ""),
+        data.get("reason") if isinstance(data.get("reason"), str) else None,
     )
