@@ -1,0 +1,40 @@
+/* How an activity's Details look: a red and green diff for edits, a formatted page for markdown. */
+.orch-ev-stat { font-family: ui-monospace, Consolas, monospace; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.orch-plus { color: #1a7f37; }
+.orch-minus { color: #cf222e; }
+
+.orch-diff { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin: 6px 0; font-family: ui-monospace, Consolas, monospace; font-size: 12px; line-height: 1.6; }
+.orch-dl { display: flex; }
+.orch-dl-n { flex: none; width: 38px; padding: 0 8px; text-align: right; color: var(--muted); user-select: none; }
+.orch-dl-s { flex: none; width: 18px; text-align: center; user-select: none; }
+.orch-dl-code { flex: 1; min-width: 0; padding-right: 12px; white-space: pre-wrap; word-break: break-all; }
+.orch-dl-del { background: #ffebe9; }
+.orch-dl-del .orch-dl-n { background: #ffd7d5; }
+.orch-dl-del .orch-dl-s { color: #cf222e; }
+.orch-dl-add { background: #dafbe1; }
+.orch-dl-add .orch-dl-n { background: #ccffd8; }
+.orch-dl-add .orch-dl-s { color: #1a7f37; }
+.orch-dl-del mark { background: #ffc1ba; color: inherit; border-radius: 3px; }
+.orch-dl-add mark { background: #a6f0b4; color: inherit; border-radius: 3px; }
+.orch-dl-same .orch-dl-code { color: var(--muted); }
+.orch-dl-gap, .orch-dl-hunk { background: #f1f3f5; color: var(--muted); padding: 1px 12px; font-style: italic; }
+.orch-dl-hunk { font-style: normal; }
+
+.orch-md-switch { display: inline-flex; gap: 2px; margin: 6px 0; padding: 2px; background: #f1f3f5; border-radius: 8px; }
+.orch-md-switch button { border: 0; background: transparent; padding: 2px 12px; font-size: 12px; border-radius: 6px; cursor: pointer; color: var(--muted); }
+.orch-md-switch button.on { background: #fff; color: var(--text); font-weight: 600; }
+.orch-md-box { border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; margin-bottom: 6px; background: #fff; }
+.orch-md-box > pre { margin: 0; }
+.orch-md { font-size: 14px; line-height: 1.65; }
+.orch-md-h { font-weight: 600; margin: 10px 0 4px; }
+.orch-md-h1 { font-size: 17px; }
+.orch-md-h2 { font-size: 15px; }
+.orch-md-h3, .orch-md-h4 { font-size: 14px; }
+.orch-md-p { margin: 4px 0 8px; }
+.orch-md-list { margin: 4px 0 8px; padding-left: 22px; }
+.orch-md code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; background: #f1f3f5; padding: 1px 5px; border-radius: 4px; }
+.orch-md-code { background: #f6f8fa; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: 12px; overflow-x: auto; }
+.orch-md-table { border-collapse: collapse; margin: 6px 0 10px; font-size: 13px; }
+.orch-md-table th, .orch-md-table td { border: 1px solid var(--line); padding: 4px 10px; text-align: left; }
+.orch-md-table th { background: #f6f8fa; font-weight: 600; }
+.orch-md-rule { border: 0; border-top: 1px solid var(--line); margin: 10px 0; }

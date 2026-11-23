@@ -81,6 +81,9 @@ Brigade.orchestrator = (function () {
     paintTask();
   }
 
+  /** The plan's "Documentation:" task: it runs a Documenter and a Doc Reviewer, not a Builder. */
+  const isDocumentation = (t) => Boolean(t && t.title && t.title.trim().toLowerCase().startsWith("documentation:"));
+
   function paintTask() {
     const t = task();
     const none = $("orch-detail");
@@ -92,13 +95,16 @@ Brigade.orchestrator = (function () {
     picker.hidden = t.attempts.length < 2;
     picker.replaceChildren(...t.attempts.map((x) => new Option("Attempt " + x.number + (x.outcome ? " · " + x.outcome : ""), x.number)));
     picker.value = String(s.attempt);
-    if (a && !a.sources.includes(s.role)) s.role = a.sources[0] || s.role;
+    const docs = isDocumentation(t);
+    const mine = Brigade.orchAgent.rolesOf(docs);
+    if (!mine.includes(s.role)) s.role = mine[0]; // a documentation task opens on the Documenter
+    if (a && !a.sources.includes(s.role)) s.role = a.sources.find((x) => mine.includes(x)) || s.role;
     Brigade.orchAgent.tabs($("orch-tabs"), a, s.role, (role) => {
       s.role = role;
       s.report = null;
       feed.reset();
       paintTask();
-    });
+    }, docs);
     Brigade.orchAgent.usage($("orch-usage"), a, s.role);
     $("orch-report").hidden = !api.hasReport(s.role);
     Brigade.orchReport.render($("orch-report"), s.report, Brigade.orchAgent.JOB[s.role]);

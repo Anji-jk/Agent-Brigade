@@ -20,6 +20,8 @@ from sqlalchemy import Engine
 
 from core.db import init_db
 from core.settings import Settings
+from pipeline.documenting.doc_kind import is_documentation_task
+from pipeline.documenting.doc_task_run import run_doc_task
 from pipeline.runner.claude_runner import AgentRunner
 from pipeline.stages import checkpoint
 from pipeline.stages.attempt_log import AttemptLog
@@ -37,7 +39,8 @@ from pipeline.stages.interrupt import (
 )
 from pipeline.stages.judge_report import JudgeResult, format_judge, write_judge_report
 from pipeline.stages.judge_run import judge_attempt
-from pipeline.stages.prepare import project_root
+from pipeline.stages.prepare import approved_plan, project_root
+from pipeline.stages.stage_inputs import find_task
 from pipeline.stages.tester_report import TesterResult, format_tester, write_tester_result
 from pipeline.stages.tester_run import run_tester
 
@@ -69,6 +72,9 @@ def run_task(
         agent_file_of(root, run_id, key),
         on_limit=lambda message: stop_for_limit(root, run_id, key, message),
     )
+    if is_documentation_task(find_task(approved_plan(root, run_id), key)):
+        documented = run_doc_task(settings, run_id, key, runner, number, engine, resume=resume)
+        return TaskResult(documented.text, None, documented.judged)
     log = AttemptLog(root, run_id, key, number)
     done = checkpoint.completed(root, run_id, key, number) if resume else []
     first = checkpoint.resume_stage(root, run_id, key, number) if resume else "builder"

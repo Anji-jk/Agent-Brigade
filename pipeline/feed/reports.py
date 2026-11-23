@@ -1,9 +1,10 @@
 """What an agent did, as the page shows it: a stage's report, with only the fields it needs.
 
-Each stage writes ``build/``, ``test/`` or ``judge/<KEY>-<n>.json`` (pipeline.stages). The page
-gets the part a person reads after the agent finishes: what changed, what it said, what it cost.
-Fields are chosen by name, so a field added to a report later is not shown by accident. Every
-text is masked for secrets and shortened, as the event feeds are.
+Each stage writes ``build/``, ``test/``, ``judge/`` or ``docs/<KEY>-<n>.json`` (pipeline.stages
+and pipeline.documenting). The page gets the part a person reads after the agent finishes: what
+changed, what it said, what it cost. Fields are chosen by name, so a field added to a report
+later is not shown by accident. Every text is masked for secrets and shortened, as the event
+feeds are.
 """
 
 from pathlib import Path
@@ -44,7 +45,8 @@ FIELDS = {
         "reviewer_skipped",
         *SHARED,
     ),  # fmt: skip
-}  # the Builder's, the Tester's and the Reviewer's (the judge's) own words and measures
+    "docs": ("ok", "error", "wrote", "outside", "report", *SHARED),
+}  # the Builder's, Tester's, Reviewer's (the judge's) and Documenter's own words and measures
 HIDDEN = ("session_id",)  # inside usage: nothing the page needs
 
 

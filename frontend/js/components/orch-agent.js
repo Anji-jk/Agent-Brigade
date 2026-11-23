@@ -4,22 +4,34 @@ window.Brigade = window.Brigade || {};
 
 Brigade.orchAgent = (function () {
   const { el, icon } = Brigade.dom;
-  const TABS = [["builder", "Builder", "bolt"], ["tester", "Tester", "check"], ["reviewer", "Reviewer", "search"], ["orchestrator", "Orchestrator", "network"]];
+  const TABS = [["builder", "Builder", "bolt"], ["tester", "Tester", "check"], ["reviewer", "Reviewer", "search"], ["documenter", "Documenter", "book"], ["doc-reviewer", "Doc Reviewer", "search"], ["orchestrator", "Orchestrator", "network"]];
+  const FOR_BUILD = ["builder", "tester", "reviewer", "orchestrator"];
+  const FOR_DOCS = ["documenter", "doc-reviewer", "orchestrator"]; // a documentation task has no Builder or Tester
+  const DB_ROLE = { "doc-reviewer": "reviewer" }; // the Doc Reviewer's row in the database is a "reviewer"
   const JOB = {
     builder: "Makes the change. Cannot commit or move branches.",
     tester: "Writes and runs tests for the change.",
     reviewer: "Judges the change and decides whether it can merge.",
+    documenter: "Writes the documentation. May only write the files the task lists.",
+    "doc-reviewer": "Checks every claim in the documentation against what the run measured.",
     orchestrator: "Runs the steps around the agents: set-up, checks, merge.",
   };
-  const NAME = { builder: "Builder", tester: "Tester", reviewer: "Reviewer", orchestrator: "Orchestrator" };
+  const NAME = { builder: "Builder", tester: "Tester", reviewer: "Reviewer", documenter: "Documenter", "doc-reviewer": "Doc Reviewer", orchestrator: "Orchestrator" };
   const money = (n) => "$" + Number(n || 0).toFixed(2);
 
-  const agentOf = (attempt, role) => (attempt ? attempt.agents.find((a) => a.role === role) : undefined);
+  /** The agent row of a role: the newest, since a documentation attempt can try twice. */
+  function agentOf(attempt, role) {
+    const rows = attempt ? attempt.agents.filter((a) => a.role === (DB_ROLE[role] || role)) : [];
+    return rows[rows.length - 1];
+  }
+
+  /** The tabs a task shows: its own agents only. `documentation`: it is a "Documentation:" task. */
+  const rolesOf = (documentation) => (documentation ? FOR_DOCS : FOR_BUILD);
 
   /** Tabs for the attempt: one without events is disabled and says why. onPick(role). */
-  function tabs(box, attempt, current, onPick) {
+  function tabs(box, attempt, current, onPick, documentation) {
     box.replaceChildren();
-    for (const [role, label, iconName] of TABS) {
+    for (const [role, label, iconName] of TABS.filter((t) => rolesOf(documentation).includes(t[0]))) {
       const has = attempt && attempt.sources.includes(role);
       const tab = el("button", "orch-tab" + (role === current ? " selected" : ""));
       tab.append(icon(iconName), label);
@@ -47,5 +59,5 @@ Brigade.orchAgent = (function () {
     box.append(el("span", "small", bits.join(" \u00B7 ")));
   }
 
-  return { tabs, usage, agentOf, JOB };
+  return { tabs, usage, agentOf, rolesOf, JOB };
 })();

@@ -21,7 +21,14 @@ def plan_reply(summary="Certificate expiry reminder", description=CRITERIA):
                 "epic": "SMT-2",
                 "summary": summary,
                 "description": description,
-                "subtasks": [{"summary": "API", "description": CRITERIA}],
+                "subtasks": [
+                    {"summary": "API", "description": CRITERIA},
+                    {
+                        "summary": "Documentation: API",
+                        "description": CRITERIA,
+                        "labels": ["documentation"],
+                    },
+                ],
             }
         ]
     }
@@ -82,7 +89,7 @@ def test_a_checked_plan_is_returned_without_its_block(jira):
     turn = make_chat(jira, FakeRunner(plan_reply())).send("Add a reminder")
     assert "```plan" not in turn.reply and turn.reply.startswith("Story: Certificate")
     assert turn.plan is not None
-    assert turn.plan.counts() == {"stories": 1, "subtasks": 1}
+    assert turn.plan.counts() == {"stories": 1, "subtasks": 2}
     assert turn.plan.stories[0].summary == "Certificate expiry reminder"
 
 

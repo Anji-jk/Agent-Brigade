@@ -6,7 +6,8 @@ Brigade.orchApi = (function () {
   const { api } = Brigade.dom;
   const run = (id) => "/api/runs/" + encodeURIComponent(id);
   const task = (id, key) => run(id) + "/tasks/" + encodeURIComponent(key);
-  const STAGE_OF = { builder: "build", tester: "test", reviewer: "judge" }; // the report each agent wrote
+  // the report each agent wrote (the Doc Reviewer's is the judge's: the decision comes from it)
+  const STAGE_OF = { builder: "build", tester: "test", reviewer: "judge", documenter: "docs", "doc-reviewer": "judge" };
 
   return {
     stories: () => api("GET", "/api/orchestrator/stories"),

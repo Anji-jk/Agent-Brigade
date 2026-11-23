@@ -16,7 +16,7 @@ Brigade.orchModel = (function () {
     paused: ["Paused", "warn"],
     interrupted: ["Interrupted", "warn"],
   };
-  const STAGE_WORD = { builder: "building", checks: "checking", tester: "testing", reviewer: "reviewing", judge: "judging" };
+  const STAGE_WORD = { builder: "building", checks: "checking", tester: "testing", reviewer: "reviewing", judge: "judging", documenter: "documenting", "doc-reviewer": "reviewing" };
 
   function runWord(buildState) {
     const [text, kind] = RUN_WORD[buildState] || [buildState, "idle"];

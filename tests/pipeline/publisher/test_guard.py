@@ -14,13 +14,17 @@ def subtask(summary="Build the API", **extra):
     return {"summary": summary, "description": CRITERIA, "labels": ["backend"], **extra}
 
 
+def docs(summary="Documentation: how it works", **extra):
+    return {"summary": summary, "description": CRITERIA, "labels": ["documentation"], **extra}
+
+
 def story(summary="Certificate expiry reminder", epic="SMT-2", subtasks=None, **extra):
     return {
         "ref": "S1",
         "epic": epic,
         "summary": summary,
         "description": CRITERIA,
-        "subtasks": [subtask()] if subtasks is None else subtasks,
+        "subtasks": [subtask(), docs()] if subtasks is None else subtasks,
         **extra,
     }
 
@@ -50,7 +54,7 @@ def test_a_good_plan_passes():
     check = check_plan(plan(), fake.client(), "SMT")
     assert check.ok and check.problems == ()
     assert check.plan is not None
-    assert check.plan.counts() == {"stories": 1, "subtasks": 1}
+    assert check.plan.counts() == {"stories": 1, "subtasks": 2}
     first = check.plan.as_dict()["stories"][0]
     assert first["epic"] == "SMT-2" and first["subtasks"][0]["labels"] == ("backend",)
     search_body = fake.requests[1][2]
@@ -144,3 +148,40 @@ def test_allowed_commands_are_the_ones_the_agent_definition_teaches():
     assert len(guard.ALLOWED_COMMANDS) == 3
     for command in guard.ALLOWED_COMMANDS:
         assert command.removesuffix(" *") in text
+
+
+def test_a_story_without_a_documentation_subtask_is_refused():
+    check = parse_plan(plan(story(subtasks=[subtask()])))
+    assert any("no documentation sub-task" in p for p in check.problems)
+
+
+def test_a_story_without_any_subtask_is_refused():
+    check = parse_plan(plan(story(subtasks=[])))
+    assert any("no documentation sub-task" in p for p in check.problems)
+
+
+@pytest.mark.parametrize(
+    "wrong",
+    [
+        {"summary": "Documentation: x", "description": CRITERIA},  # no label
+        {"summary": "Write the docs", "description": CRITERIA, "labels": ["documentation"]},
+    ],
+)
+def test_the_title_and_the_label_are_both_needed(wrong):
+    check = parse_plan(plan(story(subtasks=[subtask(), wrong])))
+    assert any("no documentation sub-task" in p for p in check.problems)
+
+
+def test_the_documentation_subtask_must_be_the_last():
+    check = parse_plan(plan(story(subtasks=[docs(), subtask()])))
+    assert any("exactly one documentation sub-task" in p for p in check.problems)
+
+
+def test_two_documentation_subtasks_are_refused():
+    check = parse_plan(plan(story(subtasks=[subtask(), docs(), docs("Documentation: more")])))
+    assert any("exactly one documentation sub-task" in p for p in check.problems)
+
+
+def test_the_check_ignores_case():
+    last = docs("DOCUMENTATION: how it works", labels=["Documentation"])
+    assert parse_plan(plan(story(subtasks=[subtask(), last]))).problems == ()

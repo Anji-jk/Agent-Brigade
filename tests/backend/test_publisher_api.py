@@ -25,12 +25,16 @@ def proposal(summary="Certificate expiry reminder", epic="SMT-2"):
                 "description": CRITERIA,
                 "subtasks": [
                     {"summary": "Backend job", "description": CRITERIA, "labels": ["backend"]},
-                    {"summary": "Docs", "description": CRITERIA},
+                    {
+                        "summary": "Documentation: Docs",
+                        "description": CRITERIA,
+                        "labels": ["documentation"],
+                    },
                 ],
             }
         ]
     }
-    tree = f"Story: {summary}\n  Sub-task: Backend job\n  Sub-task: Docs"
+    tree = f"Story: {summary}\n  Sub-task: Backend job\n  Sub-task: Documentation: Docs"
     return f"{tree}\n\n```plan\n{json.dumps(block)}\n```"
 
 
@@ -51,6 +55,12 @@ def world(tmp_path):
         jira_email="a@b.c",
         jira_api_token=SecretStr("t"),
         jira_project_key="SMT",
+        jira_status_todo="To Do",
+        jira_status_in_progress="In Progress",
+        jira_status_in_review="In Review",
+        jira_status_done="Done",
+        jira_status_error="Error",
+        jira_sync=False,
         project_path=tmp_path / "project",
         repository="org/skill-matrix",
     )
@@ -128,7 +138,7 @@ def test_the_agent_is_told_once_what_confirm_created(world):
     told = claude.requests[1].prompt
     assert told.startswith(NOTE_START) and told.endswith("Now the docs")
     assert "- story SMT-100 under SMT-2: Certificate expiry reminder" in told
-    assert "- sub-task SMT-102 under SMT-100: Docs" in told
+    assert "- sub-task SMT-102 under SMT-100: Documentation: Docs" in told
     assert claude.requests[2].prompt == "Thanks"  # already told: not repeated
 
 

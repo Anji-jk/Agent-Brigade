@@ -11,6 +11,7 @@ Brigade.orchReport = (function () {
     invalid: "Invalid", no_tests: "No tests", skipped: "Skipped", outcome: "Outcome", verdict: "Verdict",
     reasons: "Reasons", criteria: "Criteria", problems: "Problems", commit: "Commit", reviewer_skipped: "Reviewer skipped",
   };
+  const DOCS_LABEL = { wrote: "Files written", outside: "Written outside the task's files", ok: "Accepted" }; // the Documenter's report
   const ORDER = Object.keys(LABEL);
   const LONG = ["report", "summary", "notes"]; // the agent's own words: folded until asked for
   const empty = (v) => v === null || v === undefined || v === "" || (Array.isArray(v) && !v.length) || v === false;
@@ -27,6 +28,8 @@ Brigade.orchReport = (function () {
     p.append(Brigade.markdown.render(String(v)));
     return p;
   }
+
+  const label = (data, name) => (data.stage === "docs" && DOCS_LABEL[name]) || LABEL[name];
 
   /** `data` is the endpoint's answer; nothing is drawn until the stage has written its report. */
   function render(box, data, job) {
@@ -54,11 +57,11 @@ Brigade.orchReport = (function () {
         const fold = el("details", "orch-fold-row");
         fold.dataset.name = name;
         fold.open = opened.has(name);
-        fold.append(el("summary", "", LABEL[name]), value(data[name]));
+        fold.append(el("summary", "", label(data, name)), value(data[name]));
         box.append(fold);
       } else {
         const row = el("section", "orch-rep-row");
-        row.append(el("h4", "", LABEL[name]), value(data[name]));
+        row.append(el("h4", "", label(data, name)), value(data[name]));
         box.append(row);
       }
       shown += 1;

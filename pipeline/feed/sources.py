@@ -13,7 +13,7 @@ from pipeline.feed.step_items import orchestrator_items, story_items
 from pipeline.stages import attempt_log, events
 
 ORCHESTRATOR = "orchestrator"
-AGENTS = ("builder", "tester", "reviewer")
+AGENTS = ("builder", "tester", "reviewer", "documenter", "doc-reviewer")
 SOURCES = (ORCHESTRATOR, *AGENTS)
 KEY = re.compile(r"[A-Z][A-Z0-9]*-[0-9]+")
 

@@ -50,7 +50,7 @@ Rules for both lists:
 - **key**: the sub-task's Jira key. Give exactly one entry for every open sub-task, and no other keys. Done sub-tasks are listed for context only.
 - **depends_on**: keys of other open sub-tasks that must finish first, because this one uses what they add or changes the same code. Jira's "blocked by" links are always kept: list them too. You may add dependencies, never remove them. Add only real ones: every dependency makes the run slower.
 - **dependency_reasons**: for every key in depends_on, why it must wait for that sub-task, in one sentence.
-- **files**: every file the sub-task will change or create, as paths relative to the project folder.
+- **files**: every file the sub-task will change or create, as paths relative to the project folder. For the story's `Documentation:` sub-task give two kinds: the short entry in the project's own README or index (a few lines saying what the story changed), and one detailed file `story_docs/<STORY-KEY>.md` inside the docs folder named in the message (or at the project root when there is no docs folder). The detailed file holds the full account: what each task did, how it affects the code, what a person can now see.
 - **complexity**: sets the model, effort and budget the task gets.
   - small: one focused change in one or two files.
   - medium: several files, or new behaviour with its tests.

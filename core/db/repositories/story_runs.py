@@ -54,6 +54,11 @@ def get_run(session: Session, project_id: int, run_id: str) -> StoryRun | None:
     )
 
 
+def run_by_id(session: Session, run_id: str) -> StoryRun | None:
+    """The row of a run id (ids are unique across projects)."""
+    return session.scalar(select(StoryRun).where(StoryRun.run_id == run_id))
+
+
 def _of_story(project_id: int, story_key: str):
     return select(StoryRun).where(
         StoryRun.project_id == project_id, StoryRun.story_key == story_key

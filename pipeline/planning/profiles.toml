@@ -48,3 +48,19 @@ budget = 0.15
 max_turns = 100
 max_budget_usd = 5.0     # a story budget set at Plan lowers this for that run, never raises it
 timeout_seconds = 1800
+
+# The documentation task does not run the Builder, the Tester or the Reviewer. It runs a
+# Documenter, then a Documentation Reviewer: cheap model, low effort, their own limits.
+[documentation.documenter]
+model = "sonnet"
+effort = "low"
+max_turns = 30
+timeout_seconds = 600
+max_budget_usd = 0.5
+
+[documentation.reviewer]
+model = "sonnet"
+effort = "low"
+max_turns = 30
+timeout_seconds = 600
+max_budget_usd = 0.4

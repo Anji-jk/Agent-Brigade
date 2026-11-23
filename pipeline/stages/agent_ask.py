@@ -70,9 +70,11 @@ def _spent(error: AgentError) -> AgentReply | None:
 
 
 def ask_for_report(
-    runner: AgentRunner, request: AgentRequest, parse: Callable[[str], Any]
+    runner: AgentRunner, request: AgentRequest, parse: Callable[[str], Any], again: str = AGAIN
 ) -> Asked:
-    """Run `request`; `parse` raises ReportError for an unusable answer. One more try."""
+    """Run `request`; `parse` raises ReportError for an unusable answer. One more try.
+
+    `again` is what the second message says; it must contain {why}."""
     try:
         reply = runner.run(request)
     except AgentError as exc:
@@ -81,12 +83,12 @@ def ask_for_report(
         return Asked(parse(reply.text), reply, None)
     except ReportError as exc:
         why = str(exc)
-    again = replace(
+    retry = replace(
         request, resume=True, session_id=reply.session_id or request.session_id,
-        prompt=AGAIN.format(why=why),
+        prompt=again.format(why=why),
     )  # fmt: skip
     try:
-        second = runner.run(again)
+        second = runner.run(retry)
     except AgentError as exc:
         spent = _spent(exc)
         return Asked(None, _added(reply, spent) if spent else reply, str(exc))

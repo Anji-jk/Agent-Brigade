@@ -28,6 +28,8 @@ MAX_STORIES = 15
 MAX_SUBTASKS_PER_STORY = 20
 MAX_EXISTING_STORIES = 500  # Stories read per Epic for the duplicate check
 CRITERIA_LINE = "acceptance criteria:"
+DOC_LABEL = "documentation"
+DOC_PREFIX = "documentation:"
 PLAN_BLOCK = re.compile(r"```plan[ \t]*\r?\n(.*?)\r?\n[ \t]*```", re.DOTALL)
 
 
@@ -127,6 +129,27 @@ def _subtasks(read: _Reader, story: dict, where: str) -> tuple[PlannedSubtask, .
     return tuple(planned)
 
 
+def is_documentation(subtask: PlannedSubtask) -> bool:
+    """A documentation sub-task: titled 'Documentation: ...' and labelled 'documentation'."""
+    return subtask.summary.casefold().startswith(DOC_PREFIX) and DOC_LABEL in {
+        label.casefold() for label in subtask.labels
+    }
+
+
+def _documentation_rule(read: _Reader, subtasks: tuple[PlannedSubtask, ...], where: str) -> None:
+    """Every story ends with exactly one documentation sub-task."""
+    marked = [n for n, subtask in enumerate(subtasks) if is_documentation(subtask)]
+    if not marked:
+        read.problems.append(
+            f"{where}: it has no documentation sub-task. Add a last sub-task titled "
+            f"'Documentation: ...' with the label '{DOC_LABEL}'."
+        )
+    elif len(marked) > 1 or marked[0] != len(subtasks) - 1:
+        read.problems.append(
+            f"{where}: there must be exactly one documentation sub-task, and it must be the last."
+        )
+
+
 def _story(read: _Reader, story: dict, n: int) -> PlannedStory:
     where = f"Story {n}"
     summary = read.summary(story, where)
@@ -135,6 +158,8 @@ def _story(read: _Reader, story: dict, n: int) -> PlannedStory:
     epic = str(story.get("epic") or "").strip().upper()
     if not epic:
         read.problems.append(f"{where}: 'epic' is missing.")
+    subtasks = _subtasks(read, story, where)
+    _documentation_rule(read, subtasks, where)
     return PlannedStory(
         ref=str(story.get("ref") or f"S{n}"),
         epic=epic,
@@ -142,7 +167,7 @@ def _story(read: _Reader, story: dict, n: int) -> PlannedStory:
         description=read.description(story, where),
         labels=read.labels(story, where),
         priority=read.priority(story, where),
-        subtasks=_subtasks(read, story, where),
+        subtasks=subtasks,
     )
 
 
