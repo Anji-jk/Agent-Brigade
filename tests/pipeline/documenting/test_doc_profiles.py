@@ -26,10 +26,10 @@ def table(tmp_path, text=TABLE):
     return path
 
 
-def test_the_real_table_gives_both_agents_a_cheap_model_and_low_effort():
+def test_the_real_table_gives_both_agents_sonnet_and_low_effort():
     for role in ("documenter", "reviewer"):
         settings = documentation_settings(role)
-        assert settings.effort == "low" and settings.model == "haiku"
+        assert settings.effort == "low" and settings.model == "sonnet"
         assert settings.max_turns > 0 and settings.max_budget_usd > 0
     assert PROFILES_FILE.is_file()
 

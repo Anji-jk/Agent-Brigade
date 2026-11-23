@@ -67,13 +67,13 @@ def test_an_empty_answer_is_asked_again_in_prose_not_json(world):
     assert "JSON" not in runner.requests[1].prompt
 
 
-def test_the_request_has_no_shell_and_the_cheap_limits(world):
+def test_the_request_has_no_shell_and_the_low_effort_limits(world):
     runner = FakeRunner(text=REPORT)
     documenter(world, runner)
     (request,) = runner.requests
     assert request.agent == "documenter" and request.tools == DOCUMENTER_TOOLS
     assert "Bash" not in request.tools and "PowerShell" not in request.tools
-    assert (request.model, request.effort) == ("haiku", "low")
+    assert (request.model, request.effort) == ("sonnet", "low")
     assert request.agent_file.name == "documenter.md" and request.agent_file.is_file()
 
 

@@ -58,7 +58,7 @@ def test_the_reviewer_can_read_but_not_edit_or_run(world):
     (request,) = runner.requests
     assert request.agent == "doc-reviewer" and request.tools == ("Read", "Grep", "Glob")
     assert request.permission_mode == "dontAsk" and request.agent_file.is_file()
-    assert (request.model, request.effort) == ("haiku", "low")
+    assert (request.model, request.effort) == ("sonnet", "low")
 
 
 def test_the_message_has_numbered_lines_and_the_facts(world):
